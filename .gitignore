@@ -10,6 +10,8 @@ __pycache__/
 build/
 dist/
 generated_scripts/
+coverage.json
+.coverage
 
 # desloppify
 .venv-desloppify/
