@@ -2,7 +2,7 @@
 
 **Repository:** `ssis2sql`
 **Author:** generated 2026-05-18
-**Status:** ready for review / `/team-sprint` deployment
+**Status:** amended 2026-05-18 — remote SQL Server execution engine (was Docker/testcontainers); ready for `/team-sprint`
 **Companion:** `docs/sprint-coverage-95.md` (unit-coverage sprint — separate effort)
 
 ---
@@ -24,11 +24,11 @@ re-implement SSIS semantics — the real SSIS engine *is* the oracle.
 
 ### Decisions taken (locked before planning)
 
-| Question | Decision | Consequence |
-|----------|----------|-------------|
-| Ground truth | **Real SSIS golden capture** (`dtexec` on Windows) | No Python oracle. A Windows capture step is part of the framework. |
-| SQL execution engine | **SQL Server in Docker** | Faithful T-SQL. `pyodbc` + `testcontainers`. |
-| Corpus connectivity | **ODBC source + ODBC destination** | Every corpus package is DB→DB. Both the golden run and the converted-SQL run are pure database operations over ODBC; comparison is table-vs-table. Excel/flat-file endpoints are out of scope for *data* validation. |
+| Question             | Decision                                                   | Consequence                                                                                                                                                                                                            |
+| -------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ground truth         | **Real SSIS golden capture** (`dtexec` on Windows) | No Python oracle. A Windows capture step is part of the framework.                                                                                                                                                     |
+| SQL execution engine | **Remote SQL Server** (operator-provisioned)         | Faithful T-SQL.`pyodbc`; connection config from `.env`.                                                                                                                                                            |
+| Corpus connectivity  | **ODBC source + ODBC destination**                   | Every corpus package is DB→DB. Both the golden run and the converted-SQL run are pure database operations over ODBC; comparison is table-vs-table. Excel/flat-file endpoints are out of scope for*data* validation. |
 
 ---
 
@@ -42,33 +42,30 @@ shaped by.
    when a corpus package changes — not on every CI run. Its *output* (golden
    fixtures) is committed to the repo; its *consumption* (the comparison) runs
    anywhere.
-
 2. **The converted SQL is genuine T-SQL.** `CAST(... AS NVARCHAR(n))`,
    `SYSDATETIME()`, bracket-quoting, `CREATE OR ALTER PROCEDURE`. It must run on
    SQL Server — a lightweight engine with a shim would produce false
-   pass/fails. SQL Server in Docker is the only honest executor.
-
+   pass/fails. A real SQL Server instance is the only honest executor; this
+   sprint targets a **remote SQL Server** the operator provisions, with
+   connection parameters supplied via `.env`.
 3. **No golden output exists today.** The bundled `examples/*.xls` files are
    empty SSIS tutorial *templates*, not captured results. The corpus and its
    golden fixtures are built from scratch by this sprint.
-
 4. **The transpiler has *documented, intentional* divergences** (README §
    "Behaviour notes & limitations"): Lookup → `LEFT JOIN`, Sort order survives
    only into a direct destination, error outputs dropped, Row Count dropped,
    package variables become `DECLARE`d parameters. A blind comparator would be
    red forever. The framework encodes these in an **expected-divergence ledger**
    so it distinguishes *known accepted divergence* from *regression*.
-
 5. **Non-deterministic columns exist.** An Audit component emits
    `SYSDATETIME()` / `HOST_NAME()`; a Derived Column may call `GETDATE()`. The
    SSIS run and the SQL run capture *different* timestamps. The comparison
    engine must apply a **per-column policy** (exact / float-epsilon /
    datetime-tolerance / non-null-only / exclude).
-
 6. **The agent fleet building this sprint runs on macOS.** It can build and
-   unit-test all framework code, stand up Docker SQL Server, and run the static
-   layer. It **cannot execute Story 5's golden capture** — that needs Windows.
-   See § 9 "What the sprint delivers vs what needs an operator."
+   unit-test all framework code, connect to the remote SQL Server, and run the
+   static layer. It **cannot execute Story 5's golden capture** — that needs
+   Windows. See § 9 "What the sprint delivers vs what needs an operator."
 
 ---
 
@@ -85,7 +82,7 @@ Two execution contexts, one shared input, one shared comparator.
         ╔════════════════════════▼═══════════╗      ╔═══════════════▼════════════════════╗
         ║  CAPTURE CONTEXT  (Windows, manual) ║      ║  VALIDATION CONTEXT  (any OS / CI)  ║
         ║                                     ║      ║                                     ║
-        ║  Docker SQL Server                  ║      ║  Docker SQL Server (testcontainers) ║
+        ║  Remote SQL Server                  ║      ║  Remote SQL Server (from .env)      ║
         ║  1. provision schema.sql            ║      ║  1. provision schema.sql            ║
         ║  2. seed source tables from seed/   ║      ║  2. seed source tables from seed/   ║
         ║  3. dtexec package.dtsx  (ODBC)     ║      ║  3. ssis2sql convert package.dtsx   ║
@@ -107,11 +104,11 @@ Two execution contexts, one shared input, one shared comparator.
 
 **Three validation layers**, cheapest first:
 
-| Layer | Runs | Needs | Catches |
-|-------|------|-------|---------|
-| **Static** | every CI run, instant | nothing (uses repomix snapshot + `sqlglot`) | malformed SQL, broken column lineage, corpus that no longer covers a transpiler |
-| **Execution** | every CI run with Docker | Docker SQL Server | SQL that does not run; runtime errors; wrong row counts |
-| **Differential** | CI runs where golden fixtures are present | Docker + committed golden | the real prize — data the converted SQL produces ≠ data SSIS produced |
+| Layer                  | Runs                                      | Needs                                        | Catches                                                                         |
+| ---------------------- | ----------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------- |
+| **Static**       | every CI run, instant                     | nothing (uses repomix snapshot +`sqlglot`) | malformed SQL, broken column lineage, corpus that no longer covers a transpiler |
+| **Execution**    | every CI run with DB access               | reachable remote SQL Server                  | SQL that does not run; runtime errors; wrong row counts                         |
+| **Differential** | CI runs where golden fixtures are present | SQL Server + committed golden                | the real prize — data the converted SQL produces ≠ data SSIS produced         |
 
 The differential layer is gated on golden fixtures existing; until an operator
 runs Story 5's capture, it **skips with a clear message** rather than failing.
@@ -127,8 +124,8 @@ All framework code is a new top-level `validation/` package — isolated from
 validation/
   __init__.py
   config.py              # ODBC connection config, paths, default tolerances
-  conftest.py            # pytest: SQL Server container fixture, corpus discovery
-  docker_sqlserver.py    # container lifecycle + per-test fresh database
+  conftest.py            # pytest: SQL Server connection fixture, corpus discovery
+  sqlserver.py           # connection factory + per-test fresh database
   provisioning.py        # apply schema.sql DDL, seed source tables, truncate dest
   sql_runner.py          # ssis2sql convert -> execute .sql -> read back dest
   comparison.py          # the diff engine: multiset/ordered, per-column policy
@@ -200,16 +197,16 @@ Registered transpilers today (verified from `.repomix-output.xml`):
 
 ### Proposed corpus packages (Story 6 detail)
 
-| Package | Exercises | Notes |
-|---------|-----------|-------|
-| `passthrough_basic` | Source → Destination | smoke test; the simplest possible diff |
-| `derived_and_convert` | Derived Column, Data Conversion, Copy Column | + expression-language feature coverage (arithmetic, `ISNULL`/`REPLACENULL`, `?:`, `TRIM`, `DATEPART`, casts) |
-| `conditional_split` | Conditional Split (multi-branch + default) | one destination per branch |
-| `aggregate_group` | Aggregate (`SUM`/`AVG`/`MIN`/`MAX`/`COUNT`/`COUNT DISTINCT`), Sort | Sort feeds destination directly → ordered comparison |
-| `lookup_match` | Lookup (match output + no-match anti-join) | ledger marks fail-mode divergence |
-| `merge_join` | Merge Join (`INNER`/`LEFT`/`FULL OUTER`) | |
-| `union_multicast` | Union All, Merge, Multicast, Row Count, Audit | Audit columns → ledger `exclude` |
-| `etl_full` | the rich pipeline (model on `examples/sales_etl.dtsx`, re-authored ODBC→ODBC) | end-to-end, multiple destinations |
+| Package                 | Exercises                                                                        | Notes                                                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `passthrough_basic`   | Source → Destination                                                            | smoke test; the simplest possible diff                                                                                |
+| `derived_and_convert` | Derived Column, Data Conversion, Copy Column                                     | + expression-language feature coverage (arithmetic,`ISNULL`/`REPLACENULL`, `?:`, `TRIM`, `DATEPART`, casts) |
+| `conditional_split`   | Conditional Split (multi-branch + default)                                       | one destination per branch                                                                                            |
+| `aggregate_group`     | Aggregate (`SUM`/`AVG`/`MIN`/`MAX`/`COUNT`/`COUNT DISTINCT`), Sort   | Sort feeds destination directly → ordered comparison                                                                 |
+| `lookup_match`        | Lookup (match output + no-match anti-join)                                       | ledger marks fail-mode divergence                                                                                     |
+| `merge_join`          | Merge Join (`INNER`/`LEFT`/`FULL OUTER`)                                   |                                                                                                                       |
+| `union_multicast`     | Union All, Merge, Multicast, Row Count, Audit                                    | Audit columns → ledger `exclude`                                                                                   |
+| `etl_full`            | the rich pipeline (model on `examples/sales_etl.dtsx`, re-authored ODBC→ODBC) | end-to-end, multiple destinations                                                                                     |
 
 The existing `examples/*.dtsx` (Excel/flat-file) remain parser/transpile fixtures
 but are **not** in the data-validation corpus — they cannot be ODBC→ODBC without
@@ -264,13 +261,13 @@ false fail.
 
 Each destination column gets a comparison policy from `ledger.yaml`:
 
-| Policy | Behaviour |
-|--------|-----------|
-| `exact` | bit-for-bit after normalisation (default) |
-| `float` | `abs(a-b) <= epsilon` (`epsilon` configurable) |
-| `datetime` | equal within a tolerance (`tolerance` configurable) |
-| `non_null` | both sides non-null; values not compared (for `HOST_NAME()` etc.) |
-| `exclude` | column dropped before comparison (for `SYSDATETIME()` audit columns) |
+| Policy       | Behaviour                                                              |
+| ------------ | ---------------------------------------------------------------------- |
+| `exact`    | bit-for-bit after normalisation (default)                              |
+| `float`    | `abs(a-b) <= epsilon` (`epsilon` configurable)                     |
+| `datetime` | equal within a tolerance (`tolerance` configurable)                  |
+| `non_null` | both sides non-null; values not compared (for `HOST_NAME()` etc.)    |
+| `exclude`  | column dropped before comparison (for `SYSDATETIME()` audit columns) |
 
 ### 6.4 Expected-divergence ledger — `ledger.yaml`
 
@@ -292,6 +289,7 @@ destinations:
 ```
 
 `known_divergences[].handling`:
+
 - `xfail` — the destination's comparison is expected to fail; framework reports
   `XFAIL`. An *unexpected pass* is itself flagged (the transpiler may have been
   fixed — update the ledger).
@@ -334,14 +332,14 @@ which ledger rules fired) for the pytest assertion message and CI log.
 
 - Windows with **SQL Server Integration Services** / `dtexec` on `PATH`
   (SQL Server Developer edition, or the standalone SSIS runtime).
-- **Docker Desktop** (Windows) — runs the same `mcr.microsoft.com/mssql/server`
-  image as the validation context.
+- **Network access to the remote SQL Server** — the same instance the
+  validation context uses.
 - **Microsoft ODBC Driver 18 for SQL Server**.
 - Python 3.10+ with the `validation` extra installed.
 
 ### Capture flow (per package)
 
-1. Start Docker SQL Server; create `val_<package>`.
+1. Connect to the remote SQL Server; create `val_<package>`.
 2. Apply `schema.sql`; seed `src_*` tables from `seed/*.csv`; **truncate** `dst_*`.
 3. Override the package's ODBC connection managers to point at this server
    (`dtexec /FILE package.dtsx /CONN "<cm_name>";"<connstr>" ...`).
@@ -383,7 +381,7 @@ Story 0  (foundation — blocking)
    ├──────────────┬──────────────┬───────────────┐
    ▼              ▼              ▼               ▼
 Story 1        Story 4        Story 6         Story 7
-(container)    (compare)      (corpus)        (static)
+(connection)   (compare)      (corpus)        (static)
    │              │              │
    ▼              │              │
 Story 2           │              │
@@ -405,13 +403,13 @@ Story 3           │              │
 
 ### Waves
 
-| Wave | Stories | Parallelism |
-|------|---------|-------------|
-| 1 | Story 0 | blocking — must complete first |
-| 2 | Stories 1, 4, 6, 7 | fully parallel — disjoint files |
-| 3 | Story 2 | after 1 |
-| 4 | Stories 3, 5 | 3 after 2; 5 after 2 & 6 |
-| 5 | Story 8 | after 1, 2, 3, 4, 6 |
+| Wave | Stories            | Parallelism                      |
+| ---- | ------------------ | -------------------------------- |
+| 1    | Story 0            | blocking — must complete first  |
+| 2    | Stories 1, 4, 6, 7 | fully parallel — disjoint files |
+| 3    | Story 2            | after 1                          |
+| 4    | Stories 3, 5       | 3 after 2; 5 after 2 & 6         |
+| 5    | Story 8            | after 1, 2, 3, 4, 6              |
 
 Stories 4, 6, 7 are off the `1→2→3` spine and run concurrently with it.
 
@@ -420,8 +418,9 @@ Stories 4, 6, 7 are off the `1→2→3` spine and run concurrently with it.
 ## 9. What the sprint delivers vs what needs an operator
 
 **Delivered & verifiable by the sprint (macOS agent fleet):**
+
 - All `validation/` framework code, with unit tests (Stories 1–4, 7).
-- Docker SQL Server fixture working under emulation.
+- SQL Server connection fixture working against the remote server.
 - The ODBC corpus: packages, schemas, seeds, ledgers (Story 6).
 - The capture harness code + `RUNBOOK.md` (Story 5) — *written and lint/type
   clean, but not executed*.
@@ -431,6 +430,7 @@ Stories 4, 6, 7 are off the `1→2→3` spine and run concurrently with it.
 - Static layer + CI wiring (Story 7).
 
 **Requires a Windows operator after merge:**
+
 - Running `capture.py` per corpus package to produce `golden/*.parquet`.
 - Once committed, Story 8's differential layer activates automatically.
 
@@ -453,8 +453,8 @@ framework's **unit tests**, not the differential tests.
   for any logging.
 - New runtime/test dependencies go in a **new** `validation` optional-dependency
   group — never forced on unit-test contributors.
-- Connection secrets (SA password) come from env / config, never hard-coded in
-  committed files.
+- Connection parameters (server address, port, SA username, password) come from
+  environment / `.env` (gitignored), never hard-coded in committed files.
 
 ---
 
@@ -466,33 +466,42 @@ framework's **unit tests**, not the differential tests.
 wire `just` recipes, define config.
 
 **Files owned.** `pyproject.toml`, `justfile`, `validation/__init__.py`,
-`validation/config.py`, `validation/tests/__init__.py`,
+`validation/config.py`, `validation/tests/__init__.py`, `.env.example`,
 `docs/sprint-validation-framework.md` (this file — mark in-progress).
 
 **Developer notes.**
+
 - Add a `validation` optional-dependency group to `pyproject.toml`:
   ```toml
   [project.optional-dependencies]
-  dev = ["pytest>=7.0"]
+  dev = ["pytest>=7.0", "pytest-cov>=4.0"]
   validation = [
       "pytest>=7.0",
+      "pytest-cov>=4.0",
       "pyodbc>=5.1",
       "pandas>=2.2",
       "pyarrow>=16.0",
-      "testcontainers[mssql]>=4.5",
       "sqlglot>=25.0",
       "pyyaml>=6.0",
+      "python-dotenv>=1.0",
   ]
   ```
 - Register a pytest marker so the slow suite is opt-in. Add to
-  `[tool.pytest.ini_options]`: `markers = ["validation: differential validation
-  (needs Docker)"]`. Do **not** add `validation/` to `testpaths` — keep
+  `[tool.pytest.ini_options]`: `markers = ["validation: differential validation (needs SQL Server)"]`. Do **not** add `validation/` to `testpaths` — keep
   `just test` fast.
-- `validation/config.py`: a frozen dataclass holding ODBC driver name
-  (`ODBC Driver 18 for SQL Server`), SA password (from `MSSQL_SA_PASSWORD` env,
-  with a dev default), container image
-  (`mcr.microsoft.com/mssql/server:2022-latest`), corpus root path, default
-  tolerances (float epsilon, datetime tolerance).
+- `validation/config.py`: a frozen dataclass holding the ODBC driver name
+  (`ODBC Driver 18 for SQL Server`) and the remote-server connection parameters
+  — address (`MSSQL_SERVER_ADDRESS`), port (`MSSQL_SERVER_PORT`), SA username
+  (`MSSQL_SA_USERNAME`), SA password (`MSSQL_SA_PASSWORD`) — all read from the
+  environment, loaded from a gitignored `.env` via `python-dotenv`. Also holds
+  the corpus root path, default tolerances (float epsilon, datetime tolerance),
+  and a `TrustServerCertificate` flag. No insecure defaults for credentials: if
+  the `MSSQL_*` variables are unset, the connection layer raises a clear
+  "validation SQL Server not configured" error so dependent tests skip rather
+  than fail. Provide a helper that builds the `pyodbc` connection string.
+- Commit a `.env.example` at the repo root documenting the four `MSSQL_*`
+  variables (address, port, SA username, SA password) with placeholder values.
+  The real `.env` is gitignored and supplied by the operator.
 - `justfile` recipes:
   - `validate` → `.venv/bin/python -m pytest validation/ -m validation`
   - `validate-unit` → `.venv/bin/python -m pytest validation/tests`
@@ -503,9 +512,12 @@ wire `just` recipes, define config.
   `brew install msodbcsql18`; plus `unixodbc`.
 
 **Acceptance criteria.**
+
 - `pip install -e ".[validation]"` succeeds on macOS.
 - `just validate-unit` runs (zero tests collected is fine at this point).
-- `import validation.config` works; config reads `MSSQL_SA_PASSWORD` from env.
+- `import validation.config` works; config reads `MSSQL_SERVER_ADDRESS`,
+  `MSSQL_SERVER_PORT`, `MSSQL_SA_USERNAME`, `MSSQL_SA_PASSWORD` from the
+  environment (loaded from `.env`).
 - `just test` (existing unit suite) still passes and is not slowed.
 
 **Definition of done.** Skeleton committed; deps resolve; recipes present;
@@ -513,37 +525,47 @@ existing suite green.
 
 ---
 
-### Story 1 — SQL Server container fixture
+### Story 1 — SQL Server connection fixture
 
-**Scope.** A pytest fixture that provides a running, reachable SQL Server and a
-helper for a fresh per-test database.
+**Scope.** A pytest fixture that connects to the operator-provisioned remote
+SQL Server and a helper for a fresh per-test database.
 
-**Files owned.** `validation/docker_sqlserver.py`, `validation/conftest.py`,
-`validation/tests/test_docker_sqlserver.py`.
+**Files owned.** `validation/sqlserver.py`, `validation/conftest.py`,
+`validation/tests/test_sqlserver.py`.
 
 **Developer notes.**
-- Use `testcontainers[mssql]` `SqlServerContainer` with the 2022 image. Session-
-  scoped fixture — one container for the whole run (startup is slow).
-- **Apple Silicon:** the mssql image is amd64-only; it runs under emulation. Set
-  `DOCKER_DEFAULT_PLATFORM=linux/amd64` (document it) or pass the platform to
-  testcontainers. Allow a generous readiness timeout (~120s).
-- Connection via `pyodbc` — build the connection string from `config.py`
-  (`DRIVER={ODBC Driver 18 for SQL Server};...;TrustServerCertificate=yes;`
-  — driver 18 defaults to encrypted, the dev cert is self-signed).
-- Provide `fresh_database(name) -> connection`: `DROP DATABASE IF EXISTS` +
-  `CREATE DATABASE` + return a connection scoped to it. Function-scoped fixture
-  so each corpus package is isolated.
-- If Docker is unavailable, the fixture must **skip** (`pytest.skip`) with a
-  clear message — never error.
+
+- The SQL Server is **remote and operator-provisioned** — this sprint does not
+  start, stop, or manage a server. A session-scoped fixture yields a `pyodbc`
+  connection built from `config.py` (`MSSQL_SERVER_ADDRESS`,
+  `MSSQL_SERVER_PORT`, `MSSQL_SA_USERNAME`, `MSSQL_SA_PASSWORD`).
+- Connection via `pyodbc` — build the connection string from `config.py`:
+  `DRIVER={ODBC Driver 18 for SQL Server};SERVER=<address>,<port>;UID=<user>;`
+  `PWD=<password>;Encrypt=yes;TrustServerCertificate=yes;` — driver 18 defaults
+  to encrypted and the server cert is likely self-signed, so
+  `TrustServerCertificate=yes` is required (documented as a dev-trust choice).
+- Provide `fresh_database(name) -> connection`: connect to `master` with
+  `autocommit=True` (DDL `CREATE`/`DROP DATABASE` cannot run inside a
+  transaction), `DROP DATABASE IF EXISTS <name>` then `CREATE DATABASE <name>`,
+  and return a fresh connection scoped to that database. If a drop is blocked by
+  open sessions, `ALTER DATABASE <name> SET SINGLE_USER WITH ROLLBACK IMMEDIATE`
+  first. Function-scoped fixture so each corpus package is isolated.
+- If the server is unreachable or the `MSSQL_*` environment is not configured,
+  the fixture must **skip** (`pytest.skip`) with a clear message (e.g.
+  `"validation SQL Server not configured or unreachable"`) — never error.
+- Database names are framework-controlled (`val_<package>`); even so, never
+  interpolate untrusted input into a DDL string.
 
 **Acceptance criteria.**
+
 - A test acquires a connection and runs `SELECT 1`.
 - `fresh_database("val_demo")` yields a usable, empty database; a second call
   with the same name starts clean.
-- No Docker → tests skip with `"Docker not available"`, not error.
+- Server unreachable / `.env` unconfigured → tests skip with a clear message,
+  not error.
 
-**Definition of done.** Container fixture committed; unit test green with Docker;
-skips cleanly without.
+**Definition of done.** Connection fixture committed; unit test green against
+the remote server; skips cleanly when the server is unreachable.
 
 ---
 
@@ -557,6 +579,7 @@ data — deterministically and idempotently.
 under `validation/tests/fixtures/` for unit testing (not a real corpus member).
 
 **Developer notes.**
+
 - `provision(conn, package_dir)`: execute `schema.sql` (split on `GO` batch
   separators — `GO` is a client directive, not T-SQL; `pyodbc` will not accept
   a batch containing it).
@@ -575,6 +598,7 @@ under `validation/tests/fixtures/` for unit testing (not a real corpus member).
   anchor between golden and seed.
 
 **Acceptance criteria.**
+
 - After `provision` + `seed`, source tables contain exactly the seed rows with
   correct types.
 - `truncate_destinations` leaves every `dst_*` empty; provision is idempotent
@@ -582,7 +606,7 @@ under `validation/tests/fixtures/` for unit testing (not a real corpus member).
 - `seed_checksum` is stable across runs and changes when a seed CSV changes.
 
 **Definition of done.** Provisioning + seeding + checksum committed; unit tests
-green against the Docker fixture.
+green against the SQL Server fixture.
 
 ---
 
@@ -595,6 +619,7 @@ seeded database, and read back the destination tables.
 `validation/tests/test_sql_runner.py`.
 
 **Developer notes.**
+
 - Convert in-process via `ssis2sql.convert_file` with
   `ConvertOptions(wrap_in_procedure=False, include_header=False)`:
   - **no procedure** — wrapping yields `CREATE OR ALTER PROCEDURE`, which only
@@ -612,6 +637,7 @@ seeded database, and read back the destination tables.
   "converted SQL failed to execute" as a `FAIL`, not a crash.
 
 **Acceptance criteria.**
+
 - For `passthrough_basic`, the runner converts, executes, and reads back a
   destination DataFrame with the expected columns and row count.
 - A deliberately broken package surfaces a structured error, no crash.
@@ -623,7 +649,7 @@ seeded database, and read back the destination tables.
 
 ### Story 4 — Comparison engine & divergence ledger
 
-**Scope.** The diff engine and the `ledger.yaml` rules. Pure logic — no Docker,
+**Scope.** The diff engine and the `ledger.yaml` rules. Pure logic — no database,
 no SQL — therefore the most thoroughly unit-testable story.
 
 **Files owned.** `validation/comparison.py`, `validation/ledger.py`,
@@ -631,6 +657,7 @@ no SQL — therefore the most thoroughly unit-testable story.
 `validation/tests/test_ledger.py`.
 
 **Developer notes.**
+
 - `ledger.py`: parse `ledger.yaml` into typed objects — per-destination
   `comparison` mode, `order_key`, per-column `ColumnPolicy`, list of
   `KnownDivergence`. Validate on load: `ordered` requires `order_key`; every
@@ -656,6 +683,7 @@ no SQL — therefore the most thoroughly unit-testable story.
 - Decimal vs float: compare numerically, never by repr.
 
 **Acceptance criteria.**
+
 - Identical frames → `PASS`.
 - An injected extra row → `FAIL` with that row in `extra_rows`.
 - A float column off by < epsilon → `PASS`; off by > epsilon → `FAIL`.
@@ -679,6 +707,7 @@ type/lint-clean on macOS; executed later on Windows.
 `validation/tests/test_capture.py`.
 
 **Developer notes.**
+
 - `capture.py` reuses Story 2's `provisioning` (provision + seed + truncate) so
   capture and validation seed *identically* — same loader, same NULL convention.
 - Override the package's ODBC connection managers for the capture-time server.
@@ -689,8 +718,9 @@ type/lint-clean on macOS; executed later on Windows.
   redirected error rows and fail if any (the corpus contract forbids them).
 - Export each `dst_*` table to `golden/<dst>.parquet` via `pandas`/`pyarrow`.
 - Write `manifest.json` per § 7, including `seed_checksum` from Story 2's helper.
-- `RUNBOOK.md`: numbered, copy-pasteable — install SSIS/`dtexec`, Docker Desktop,
-  ODBC Driver 18; `pip install -e ".[validation]"`; per-package
+- `RUNBOOK.md`: numbered, copy-pasteable — install SSIS/`dtexec` and
+  ODBC Driver 18; `pip install -e ".[validation]"`; configure `.env` with the
+  remote SQL Server connection; per-package
   `python -m validation.capture.capture <package_name>`; commit `golden/`.
 - Commit a `.gitkeep` (or empty `golden/`) per corpus package so the directory
   exists pre-capture and Story 8 can detect "golden absent" cleanly.
@@ -699,6 +729,7 @@ type/lint-clean on macOS; executed later on Windows.
   with a stub.
 
 **Acceptance criteria.**
+
 - `capture.py --help` runs on macOS; module imports clean; `mypy`/lint clean.
 - Manifest construction unit-tested (correct `seed_checksum`, row counts, types).
 - Parquet export round-trips a sample DataFrame.
@@ -718,6 +749,7 @@ and ledgers, covering every transpiler and the expression language.
 `schema.sql`, `seed/*.csv`, `ledger.yaml`, empty `golden/` per package).
 
 **Developer notes.**
+
 - Build the eight packages in § 5. Each `.dtsx`: an **ODBC Source**, the
   transform(s) under test, an **ODBC Destination**. Hand-author the XML or build
   in SSDT; keep them minimal — just enough to exercise the target component.
@@ -736,6 +768,7 @@ and ledgers, covering every transpiler and the expression language.
 - `golden/` stays empty (a `.gitkeep`) — Story 5's capture fills it later.
 
 **Acceptance criteria.**
+
 - Every transpiler-backed `ComponentKind` is exercised by ≥ 1 package
   (Story 7 enforces this mechanically).
 - Every package parses and transpiles without an unhandled exception.
@@ -757,9 +790,10 @@ repomix-driven completeness matrix.
 `validation/tests/test_static_checks.py`.
 
 **Developer notes.**
+
 - **Parse-validity.** For each corpus package, `ssis2sql convert` then
   `sqlglot.parse(sql, dialect="tsql")`. A parse error = `FAIL` with the
-  offending statement. Cheap, instant, catches gross regressions with no Docker.
+  offending statement. Cheap, instant, catches gross regressions with no database.
 - **Column lineage.** Use `sqlglot` (`optimize` / `lineage`) to confirm every
   column in each final `INSERT ... SELECT` resolves to a CTE column or a source
   column — i.e. the converted SQL invents no columns and drops none the
@@ -773,19 +807,20 @@ repomix-driven completeness matrix.
   2. every transpiler-backed `ComponentKind` is exercised by ≥ 1
      `validation/corpus/*` package;
   3. the `validation/` package has the modules § 4 prescribes.
-  This makes "the corpus keeps pace with the transpiler surface" a *test* — add a
-  transpiler without a corpus package and CI goes red. Reuse the `use-repo-code`
-  skill / repomix output as the structural source of truth.
+     This makes "the corpus keeps pace with the transpiler surface" a *test* — add a
+     transpiler without a corpus package and CI goes red. Reuse the `use-repo-code`
+     skill / repomix output as the structural source of truth.
 - A stale repomix snapshot must be detected (compare mtime against
   `ssis2sql/`); refresh or fail with instructions rather than validating
   against stale structure.
 
 **Acceptance criteria.**
+
 - Every corpus package's converted SQL parses as T-SQL under `sqlglot`.
 - The lineage check passes for every package (or reports a precise gap).
 - The completeness matrix fails loudly if a `ComponentKind` has a transpiler but
   no corpus coverage.
-- The static suite runs with **no Docker** and in a few seconds.
+- The static suite runs with **no database** and in a few seconds.
 
 **Definition of done.** Static checks committed; `just validate-static` green;
 completeness matrix enforced.
@@ -801,6 +836,7 @@ completeness matrix enforced.
 first), README "Validation" section.
 
 **Developer notes.**
+
 - Discover the corpus at collection time (scan `validation/corpus/`); parametrize
   over `(package, destination)` pairs.
 - Per parameter, marked `@pytest.mark.validation`:
@@ -814,16 +850,17 @@ first), README "Validation" section.
   6. load golden, `compare` against actual with the package's ledger (Story 4);
   7. assert on `verdict`: `PASS`/`XFAIL` pass the test; `FAIL`/`XPASS` fail it
      with the rendered diff report as the message.
-- The test must also **skip cleanly** when Docker is unavailable.
+- The test must also **skip cleanly** when the SQL Server is unreachable.
 - CI: run `just validate-static` and `just validate-unit` on every push (fast,
-  no Docker needed for static if the SQL is pre-generated — or gate execution
-  bits behind a Docker-available check). Run the full `just validate` on a
-  Docker-capable runner; until golden fixtures exist it is all skips — green and
-  honest.
+  no database needed for the static layer — or gate execution bits behind a
+  server-reachable check). Run the full `just validate` on a runner with
+  network access to the SQL Server (connection parameters supplied as CI
+  secrets); until golden fixtures exist it is all skips — green and honest.
 - README: a "Validation framework" section — what it does, `just validate*`
   recipes, the Windows capture dependency, link to `RUNBOOK.md`.
 
 **Acceptance criteria.**
+
 - `just validate` collects one test per `(package, destination)`.
 - With no golden fixtures: every differential test **skips** with the runbook
   message; the run is green.
@@ -842,35 +879,40 @@ all verified; CI wired; README updated.
 
 ## 12. Risks & mitigations
 
-| Risk | Mitigation |
-|------|------------|
-| SQL Server image slow/unstable under emulation on Apple Silicon | Session-scoped container (start once); generous readiness timeout; clear skip when Docker absent. |
-| Golden capture needs Windows the agent fleet lacks | Sprint builds the harness + runbook; capture is a documented post-merge operator step; Story 8 skips cleanly until golden lands. |
-| Hand-authored `.dtsx` files malformed / not parser-accepted | Story 6 gates every package on `ssis2sql inspect` + `convert`; reference `examples/sales_etl.dtsx` and parser tests for accepted structures. |
-| Comparison false-fails on type representation (`float` vs `Decimal`, datetime precision) | `schema.sql` is the single type authority; both sides coerced through it; per-column `float`/`datetime` tolerance policies. |
-| Non-deterministic columns (Audit, `GETDATE`) | Ledger `exclude` / `non_null` policy — explicit, reviewed, per column. |
-| Stale golden after a seed edit | `seed_checksum` in the manifest; integrity gate hard-fails before comparing. |
-| Transpiler's documented divergences make the suite permanently red | Expected-divergence ledger with `xfail`/`filter`/`accept` + mandatory `reason`; `XPASS` flagged so a fixed transpiler prompts a ledger update. |
-| `GO` batch separators break `pyodbc` execution | Provisioning and runner split on `GO` before executing. |
-| `INSERT INTO` appends → doubled rows on re-run | `truncate_destinations` before every run, both contexts. |
-| ODBC Driver 18 encryption rejects the dev cert | `TrustServerCertificate=yes` in the dev connection string (documented as dev-only). |
-| Scope creep into "fix the transpiler" | Convention § 10: a failed comparison is a *finding to file*, never a `ssis2sql/` edit in this sprint. |
+| Risk                                                                                         | Mitigation                                                                                                                                               |
+| -------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Remote SQL Server unreachable or not yet provisioned                                         | Connection fixture skips cleanly with a clear message; the sprint proceeds and live tests activate once the server is reachable.                         |
+| Connection credentials committed by accident                                                 | `.env` is gitignored; `config.py` reads only from the environment; CI supplies credentials as secrets.                                               |
+| Golden capture needs Windows the agent fleet lacks                                           | Sprint builds the harness + runbook; capture is a documented post-merge operator step; Story 8 skips cleanly until golden lands.                         |
+| Hand-authored `.dtsx` files malformed / not parser-accepted                                | Story 6 gates every package on `ssis2sql inspect` + `convert`; reference `examples/sales_etl.dtsx` and parser tests for accepted structures.       |
+| Comparison false-fails on type representation (`float` vs `Decimal`, datetime precision) | `schema.sql` is the single type authority; both sides coerced through it; per-column `float`/`datetime` tolerance policies.                        |
+| Non-deterministic columns (Audit,`GETDATE`)                                                | Ledger `exclude` / `non_null` policy — explicit, reviewed, per column.                                                                              |
+| Stale golden after a seed edit                                                               | `seed_checksum` in the manifest; integrity gate hard-fails before comparing.                                                                           |
+| Transpiler's documented divergences make the suite permanently red                           | Expected-divergence ledger with `xfail`/`filter`/`accept` + mandatory `reason`; `XPASS` flagged so a fixed transpiler prompts a ledger update. |
+| `GO` batch separators break `pyodbc` execution                                           | Provisioning and runner split on `GO` before executing.                                                                                                |
+| `INSERT INTO` appends → doubled rows on re-run                                            | `truncate_destinations` before every run, both contexts.                                                                                               |
+| ODBC Driver 18 encryption rejects the dev cert                                               | `TrustServerCertificate=yes` in the dev connection string (documented as dev-only).                                                                    |
+| Scope creep into "fix the transpiler"                                                        | Convention § 10: a failed comparison is a*finding to file*, never a `ssis2sql/` edit in this sprint.                                                |
 
 ---
 
 ## 13. Dependencies & prerequisites
 
 **Python (the `validation` extra):** `pyodbc`, `pandas`, `pyarrow`,
-`testcontainers[mssql]`, `sqlglot`, `pyyaml`, `pytest`.
+`sqlglot`, `pyyaml`, `python-dotenv`, `pytest`, `pytest-cov`.
 
 **System (not pip-installable):**
-- Docker (Docker Desktop / engine) — validation context.
+
+- A reachable **SQL Server** instance — operator-provisioned (remote);
+  connection parameters (address, port, SA username, password) supplied via
+  `.env` / environment.
 - Microsoft **ODBC Driver 18 for SQL Server** — macOS:
   `brew install msodbcsql18` (Microsoft tap) + `unixodbc`.
 
 **Windows capture host (operator, post-merge):**
+
 - SQL Server Integration Services / `dtexec`.
-- Docker Desktop for Windows.
+- Network access to the remote SQL Server.
 - ODBC Driver 18.
 - Python 3.10+ with `.[validation]`.
 
@@ -880,9 +922,9 @@ all verified; CI wired; README updated.
 
 ```sh
 just install-validation     # venv + ssis2sql + the validation extra
-just validate-static        # static layer — no Docker, seconds
+just validate-static        # static layer — no database, seconds
 just validate-unit          # framework's own unit tests
-just validate               # full differential suite (Docker; skips until golden exists)
+just validate               # full differential suite (needs SQL Server; skips until golden exists)
 ```
 
 Golden capture (Windows operator, after merge):
@@ -897,16 +939,20 @@ git add validation/corpus/<package_name>/golden && git commit
 
 ## 15. Deploy notes
 
-- `/team-sprint` requires a **clean working tree**. The repo currently has ~24
-  modified files plus untracked `.claude/`, `examples/sixty_ssis/`,
-  `scorecard.png`, and new `ssis2sql/transforms/context.py` & `registry.py`.
-  Commit or stash before deploying.
+- `/team-sprint` requires a **clean working tree** — verified clean at sprint
+  launch.
+- The remote SQL Server connection is configured via a gitignored `.env`
+  (`MSSQL_SERVER_ADDRESS`, `MSSQL_SERVER_PORT`, `MSSQL_SA_USERNAME`,
+  `MSSQL_SA_PASSWORD`); `.env.example` documents the keys.
 - Story 0 is **blocking** — it creates `pyproject.toml`/`justfile` changes and
   the `validation/` skeleton every other story builds on.
 - Stories 1, 4, 6, 7 fan out in parallel after Story 0; the `1→2→3` spine and
   Story 5 follow; Story 8 closes.
 - The 80% coverage gate applies to `validation/`'s **unit tests**
-  (`validation/tests/`), not the Docker/Windows-dependent differential tests.
+  (`validation/tests/`), not the Windows-dependent differential tests.
 - This sprint does **not** modify `ssis2sql/`. If a comparison surfaces a real
   transpiler bug, file it — a separate fix sprint owns the change.
+
+```
+
 ```
