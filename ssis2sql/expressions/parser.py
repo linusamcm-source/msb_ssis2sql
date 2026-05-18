@@ -143,7 +143,7 @@ class Parser:
             self._advance()
             if self.cur.kind == "LPAREN":          # function call
                 self._advance()
-                args: list = []
+                args: list[ast.Node] = []
                 if self.cur.kind != "RPAREN":
                     args.append(self._expression())
                     while self.cur.kind == "COMMA":

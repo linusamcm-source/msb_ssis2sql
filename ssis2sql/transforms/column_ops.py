@@ -2,32 +2,20 @@
 
 All three are *synchronous*: they pass every upstream column through untouched
 and add (or replace) a handful of computed columns. The output relation is the
-upstream relation's columns plus the new ones.
+upstream relation's columns plus the new ones. The three differ only in how
+they compute the expression for one output column; the shared pass-through and
+column-merge skeleton lives in
+:func:`~ssis2sql.transforms.base.column_mapped_relation`.
 """
 from __future__ import annotations
 
 from ..errors import ExpressionError
 from ..expressions import translate_expression
-from ..model import Component, ComponentKind
-from ..relation import RelColumn
+from ..model import Column, Component, ComponentKind
 from ..sqltypes import tsql_type_from_column
-from .base import (
-    BuildContext,
-    Transpiler,
-    passthrough_columns,
-    register,
-    resolve_source_column,
-)
-
-
-def _merge_column(columns: list, index: dict, new_col: RelColumn) -> None:
-    """Replace a same-named column in place, or append a new one."""
-    key = new_col.name.lower()
-    if key in index:
-        columns[index[key]] = new_col
-    else:
-        index[key] = len(columns)
-        columns.append(new_col)
+from .base import column_mapped_relation, resolve_source_column
+from .context import BuildContext
+from .registry import Transpiler, register
 
 
 @register(ComponentKind.DERIVED_COLUMN)
@@ -39,33 +27,27 @@ class DerivedColumnTranspiler(Transpiler):
         if io is None:
             return
         upstream, output = io
-
-        columns = passthrough_columns(ctx, upstream)
-        index = {c.name.lower(): i for i, c in enumerate(columns)}
         resolve_col = ctx.column_resolver()
         resolve_var = ctx.make_variable_resolver()
 
-        for oc in output.columns:
+        def make_expr(oc: Column) -> str | None:
             expr_text = (
                 oc.properties.get("FriendlyExpression")
                 or oc.properties.get("Expression")
                 or ""
             ).strip()
             if not expr_text:
-                continue
+                return None                       # no expression - a pass-through column
             try:
                 sql, warnings = translate_expression(expr_text, resolve_col, resolve_var)
             except ExpressionError as exc:
                 ctx.warn(f"derived column [{oc.name}] in {component.name!r}: {exc}")
-                sql = f"/* untranslatable SSIS expression: {expr_text} */ NULL"
-                warnings = []
+                return f"/* untranslatable SSIS expression: {expr_text} */ NULL"
             for warning in warnings:
                 ctx.warn(f"derived column [{oc.name}] in {component.name!r}: {warning}")
-            _merge_column(columns, index, RelColumn(oc.name, sql, oc.data_type, oc.lineage_id))
+            return sql
 
-        ctx.make_relation(
-            component, output, columns, ctx.from_clause(upstream), name_hint=component.name
-        )
+        column_mapped_relation(ctx, component, upstream, output, make_expr)
 
 
 @register(ComponentKind.DATA_CONVERSION)
@@ -78,18 +60,13 @@ class DataConversionTranspiler(Transpiler):
             return
         upstream, output = io
 
-        columns = passthrough_columns(ctx, upstream)
-        index = {c.name.lower(): i for i, c in enumerate(columns)}
-
-        for oc in output.columns:
+        def make_expr(oc: Column) -> str:
             source = resolve_source_column(ctx, component, oc, upstream)
-            target_type = tsql_type_from_column(oc)
-            expr = f"CAST({ctx.quote(source)} AS {target_type})" if source else "NULL"
-            _merge_column(columns, index, RelColumn(oc.name, expr, oc.data_type, oc.lineage_id))
+            if not source:
+                return "NULL"
+            return f"CAST({ctx.quote(source)} AS {tsql_type_from_column(oc)})"
 
-        ctx.make_relation(
-            component, output, columns, ctx.from_clause(upstream), name_hint=component.name
-        )
+        column_mapped_relation(ctx, component, upstream, output, make_expr)
 
 
 @register(ComponentKind.COPY_COLUMN)
@@ -102,14 +79,8 @@ class CopyColumnTranspiler(Transpiler):
             return
         upstream, output = io
 
-        columns = passthrough_columns(ctx, upstream)
-        index = {c.name.lower(): i for i, c in enumerate(columns)}
-
-        for oc in output.columns:
+        def make_expr(oc: Column) -> str:
             source = resolve_source_column(ctx, component, oc, upstream)
-            expr = ctx.quote(source) if source else "NULL"
-            _merge_column(columns, index, RelColumn(oc.name, expr, oc.data_type, oc.lineage_id))
+            return ctx.quote(source) if source else "NULL"
 
-        ctx.make_relation(
-            component, output, columns, ctx.from_clause(upstream), name_hint=component.name
-        )
+        column_mapped_relation(ctx, component, upstream, output, make_expr)

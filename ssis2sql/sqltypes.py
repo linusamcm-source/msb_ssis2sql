@@ -11,6 +11,8 @@ Both reduce to the same base table; only where the size lives differs.
 """
 from __future__ import annotations
 
+from .model import Column
+
 # Fixed-shape codes - no length / precision / scale needed.
 _BASE: dict[str, str] = {
     "i1": "SMALLINT",          # signed 1-byte has no exact T-SQL peer
@@ -42,7 +44,7 @@ _BASE: dict[str, str] = {
 _DEFAULT = "NVARCHAR(255)"
 
 
-def _normalise(code: str) -> str:
+def _normalise_type_code(code: str) -> str:
     code = (code or "").strip().lower()
     if code.startswith("dt_"):
         code = code[3:]
@@ -52,7 +54,7 @@ def _normalise(code: str) -> str:
 def tsql_type(code: str, args: list[int] | None = None) -> str:
     """Translate an expression cast code, e.g. ``tsql_type("DT_STR", [50, 1252])``."""
     args = args or []
-    c = _normalise(code)
+    c = _normalise_type_code(code)
     if c == "str":
         return f"VARCHAR({args[0] if args else 8000})"
     if c == "wstr":
@@ -69,9 +71,9 @@ def tsql_type(code: str, args: list[int] | None = None) -> str:
     return _BASE.get(c, _DEFAULT)
 
 
-def tsql_type_from_column(col) -> str:
+def tsql_type_from_column(col: Column) -> str:
     """Translate a pipeline :class:`~ssis2sql.model.Column` to a T-SQL type."""
-    c = _normalise(col.data_type)
+    c = _normalise_type_code(col.data_type)
     if c == "str":
         return f"VARCHAR({col.length or 255})"
     if c == "wstr":
@@ -83,3 +85,24 @@ def tsql_type_from_column(col) -> str:
     if c == "decimal":
         return f"DECIMAL(38,{col.scale or 0})"
     return _BASE.get(c, _DEFAULT)
+
+
+def sql_string_literal(value: str) -> str:
+    """Render a Python string as a T-SQL Unicode literal.
+
+    Control characters cannot live inside a literal, so they are spliced out
+    as ``NCHAR(n)`` concatenations - ``"a\\nb"`` -> ``(N'a' + NCHAR(10) + N'b')``.
+    """
+    parts: list[str] = []
+    buf: list[str] = []
+    for ch in value:
+        if ord(ch) < 32:
+            if buf:
+                parts.append("N'" + "".join(buf).replace("'", "''") + "'")
+                buf = []
+            parts.append(f"NCHAR({ord(ch)})")
+        else:
+            buf.append(ch)
+    if buf or not parts:
+        parts.append("N'" + "".join(buf).replace("'", "''") + "'")
+    return parts[0] if len(parts) == 1 else "(" + " + ".join(parts) + ")"

@@ -174,7 +174,7 @@ Adding support for a component is one self-contained file. Subclass
 
 ```python
 from ssis2sql.model import ComponentKind
-from ssis2sql.transforms.base import Transpiler, register
+from ssis2sql.transforms import Transpiler, register
 
 @register(ComponentKind.MY_COMPONENT)
 class MyTranspiler(Transpiler):
@@ -196,9 +196,9 @@ ssis2sql/
   component_types.py   componentClassID -> ComponentKind
   graph.py             the data-flow DAG + topological sort
   expressions/         SSIS expression language: lexer, parser, translator
-  transforms/          one transpiler per component kind
+  transforms/          component transpilers, plus the build context and registry
   generator.py         CTE assembly -> consolidated T-SQL
-  dialect.py           identifier quoting and type rendering
+  dialect.py           T-SQL identifier quoting
   sqltypes.py          SSIS data-type codes -> T-SQL types
   observability.py     loguru logging: @logged / log_methods / instrument_module
   cli.py               the `ssis2sql` command line

@@ -58,7 +58,7 @@ class Column:
     lineage_id: str = ""             # often equal to ref_id in modern .dtsx
     usage_type: str = ""             # input columns only: readOnly / readWrite
     upstream_lineage_id: str = ""    # input columns only: id of the source output column
-    properties: dict = field(default_factory=dict)
+    properties: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -70,9 +70,9 @@ class Port:
     is_error: bool = False
     synchronous_input_id: str = ""   # outputs: empty/"0" => asynchronous output
     exclusion_group: int = 0         # conditional-split style routing groups
-    columns: list = field(default_factory=list)        # list[Column]
-    external_columns: list = field(default_factory=list)  # destination table metadata
-    properties: dict = field(default_factory=dict)
+    columns: list[Column] = field(default_factory=list)
+    external_columns: list[Column] = field(default_factory=list)  # destination table metadata
+    properties: dict[str, str] = field(default_factory=dict)
 
     @property
     def is_async(self) -> bool:
@@ -104,12 +104,12 @@ class Component:
     class_id: str = ""
     kind: ComponentKind = ComponentKind.UNKNOWN
     description: str = ""
-    inputs: list = field(default_factory=list)         # list[Port]
-    outputs: list = field(default_factory=list)        # list[Port]
-    connections: list = field(default_factory=list)    # list[Connection]
-    properties: dict = field(default_factory=dict)
+    inputs: list[Port] = field(default_factory=list)
+    outputs: list[Port] = field(default_factory=list)
+    connections: list[Connection] = field(default_factory=list)
+    properties: dict[str, str] = field(default_factory=dict)
 
-    def property(self, name: str, default=None):
+    def property(self, name: str, default: str | None = None) -> str | None:
         """Case-insensitive custom-property lookup."""
         low = name.lower()
         for key, value in self.properties.items():
@@ -117,10 +117,10 @@ class Component:
                 return value
         return default
 
-    def non_error_outputs(self) -> list:
+    def non_error_outputs(self) -> list[Port]:
         return [o for o in self.outputs if not o.is_error]
 
-    def error_outputs(self) -> list:
+    def error_outputs(self) -> list[Port]:
         return [o for o in self.outputs if o.is_error]
 
 
@@ -140,8 +140,8 @@ class DataFlow:
 
     name: str = ""
     ref_id: str = ""
-    components: list = field(default_factory=list)     # list[Component]
-    paths: list = field(default_factory=list)          # list[Path]
+    components: list[Component] = field(default_factory=list)
+    paths: list[Path] = field(default_factory=list)
 
 
 @dataclass
@@ -152,7 +152,7 @@ class ConnectionManager:
     name: str = ""
     creation_name: str = ""          # OLEDB, FLATFILE, ADO.NET, ...
     connection_string: str = ""
-    properties: dict = field(default_factory=dict)
+    properties: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -175,7 +175,7 @@ class Package:
 
     name: str = ""
     source_path: str = ""
-    data_flows: list = field(default_factory=list)        # list[DataFlow]
-    connection_managers: list = field(default_factory=list)
-    variables: list = field(default_factory=list)
-    exec_sql_tasks: list = field(default_factory=list)    # raw SQL from control flow
+    data_flows: list[DataFlow] = field(default_factory=list)
+    connection_managers: list[ConnectionManager] = field(default_factory=list)
+    variables: list[Variable] = field(default_factory=list)
+    exec_sql_tasks: list[str] = field(default_factory=list)    # raw SQL from control flow

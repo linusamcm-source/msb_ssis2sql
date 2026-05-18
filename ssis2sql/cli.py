@@ -110,7 +110,9 @@ def main(argv: list[str] | None = None) -> int:
     except Ssis2SqlError as exc:
         print(f"ssis2sql: error: {exc}", file=sys.stderr)
         return 2
-    except (FileNotFoundError, IsADirectoryError, PermissionError) as exc:
+    except OSError as exc:
+        # parse_file() already converts input-file failures to ParseError; this
+        # catches a failed --output write, the one raw OSError that still escapes.
         print(f"ssis2sql: error: {exc}", file=sys.stderr)
         return 2
     return 0

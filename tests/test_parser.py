@@ -104,3 +104,70 @@ def test_malformed_xml_raises_parse_error():
 def test_non_package_xml_raises_parse_error():
     with pytest.raises(ParseError):
         parse_string("<root><child/></root>")
+
+
+# --------------------------------------------------------------------------- #
+# legacy SQL Server 2005/2008 format
+# --------------------------------------------------------------------------- #
+# The bundled example is modern-format; this exercises the legacy branches:
+# <DTS:Property> metadata children, a bare (un-wrapped) connection manager,
+# <DTS:PackageVariable>, un-wrapped executables, integer pipeline ids, and a
+# GUID componentClassID.
+_LEGACY_DTSX = """<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts">
+  <DTS:Property DTS:Name="ObjectName">LegacyPackage</DTS:Property>
+  <DTS:ConnectionManager>
+    <DTS:Property DTS:Name="ObjectName">LegacyDB</DTS:Property>
+    <DTS:Property DTS:Name="CreationName">OLEDB</DTS:Property>
+  </DTS:ConnectionManager>
+  <DTS:PackageVariable>
+    <DTS:Property DTS:Name="Namespace">User</DTS:Property>
+    <DTS:Property DTS:Name="ObjectName">BatchSize</DTS:Property>
+    <DTS:Property DTS:Name="PackageVariableValue">500</DTS:Property>
+  </DTS:PackageVariable>
+  <DTS:Executable>
+    <DTS:Property DTS:Name="ObjectName">Legacy Data Flow</DTS:Property>
+    <DTS:ObjectData>
+      <pipeline>
+        <components>
+          <component id="1" name="LegacySource"
+                     componentClassID="{2C0A8BE5-1EDC-4353-A0EF-B778599C65A0}">
+            <outputs>
+              <output id="10" name="Output">
+                <outputColumns>
+                  <outputColumn id="100" name="CustomerID" dataType="i4" lineageId="100"/>
+                </outputColumns>
+              </output>
+            </outputs>
+          </component>
+        </components>
+        <paths/>
+      </pipeline>
+    </DTS:ObjectData>
+  </DTS:Executable>
+</DTS:Executable>"""
+
+
+def test_legacy_2005_format_metadata_parsed():
+    package = parse_string(_LEGACY_DTSX)
+    # Package name comes from a <DTS:Property> child, not a DTS: attribute.
+    assert package.name == "LegacyPackage"
+    # Connection manager is a bare child (no <DTS:ConnectionManagers> wrapper).
+    assert len(package.connection_managers) == 1
+    assert package.connection_managers[0].name == "LegacyDB"
+    assert package.connection_managers[0].creation_name == "OLEDB"
+    # Variable comes from <DTS:PackageVariable> with a PackageVariableValue.
+    assert len(package.variables) == 1
+    assert package.variables[0].qualified == "User::BatchSize"
+    assert package.variables[0].value == "500"
+
+
+def test_legacy_2005_format_pipeline_parsed():
+    package = parse_string(_LEGACY_DTSX)
+    assert len(package.data_flows) == 1
+    flow = package.data_flows[0]
+    assert flow.name == "Legacy Data Flow"
+    assert len(flow.components) == 1
+    component = flow.components[0]
+    assert component.ref_id == "1"                       # legacy integer id
+    assert component.kind == ComponentKind.OLEDB_SOURCE   # resolved from its GUID
+    assert component.outputs[0].columns[0].name == "CustomerID"

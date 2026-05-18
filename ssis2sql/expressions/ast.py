@@ -63,7 +63,7 @@ class FunctionCall(Node):
     """A function call: ``UPPER([x])``, ``DATEADD("d", 1, GETDATE())``."""
 
     name: str
-    args: list
+    args: list[Node]
 
 
 @dataclass
@@ -71,7 +71,7 @@ class Cast(Node):
     """An SSIS cast: ``(DT_STR,50,1252)[x]``."""
 
     type_code: str
-    type_args: list
+    type_args: list[int]
     operand: Node
 
 
@@ -80,4 +80,4 @@ class TypedNull(Node):
     """A typed null literal: ``NULL(DT_WSTR, 50)``."""
 
     type_code: str
-    type_args: list
+    type_args: list[int]

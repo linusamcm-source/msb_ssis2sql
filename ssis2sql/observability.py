@@ -19,8 +19,14 @@ import functools
 import inspect
 import sys
 import time
+from collections.abc import Callable
+from types import ModuleType
+from typing import TYPE_CHECKING
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from loguru import Logger
 
 # Stay silent until the host application opts in (loguru's library convention).
 logger.disable("ssis2sql")
@@ -36,11 +42,11 @@ _FORMAT = (
 
 def configure_logging(
     level: str = "INFO",
-    sink=None,
+    sink: object | None = None,
     *,
     diagnose: bool = False,
     backtrace: bool = True,
-):
+) -> Logger:
     """Enable ssis2sql logging and route it to ``sink`` (default: ``stderr``).
 
     ``diagnose`` controls loguru's variable-value annotation inside tracebacks;
@@ -58,7 +64,9 @@ def configure_logging(
     return logger
 
 
-def logged(func=None, *, level: str = "DEBUG", reraise: bool = True):
+def logged(
+    func: Callable | None = None, *, level: str = "DEBUG", reraise: bool = True
+) -> Callable:
     """Decorator: trace a call, and log any exception with its traceback.
 
     Entry and successful exit are logged at ``level`` (DEBUG by default, so they
@@ -96,7 +104,9 @@ def logged(func=None, *, level: str = "DEBUG", reraise: bool = True):
     return decorate(func) if func is not None else decorate
 
 
-def log_methods(cls=None, *, level: str = "DEBUG", reraise: bool = True):
+def log_methods(
+    cls: type | None = None, *, level: str = "DEBUG", reraise: bool = True
+) -> Callable:
     """Class decorator: apply :func:`logged` to every method the class defines.
 
     Dunder methods and inherited methods are left alone; ``staticmethod`` and
@@ -121,7 +131,7 @@ def log_methods(cls=None, *, level: str = "DEBUG", reraise: bool = True):
 
 
 def instrument_module(
-    module,
+    module: ModuleType,
     *,
     level: str = "DEBUG",
     reraise: bool = True,

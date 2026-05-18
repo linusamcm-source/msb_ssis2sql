@@ -48,10 +48,12 @@ def tokenize(text: str) -> list[Token]:
                     if nxt == "x" and j + 5 < n:
                         try:
                             buf.append(chr(int(text[j + 2:j + 6], 16)))
-                            j += 6
-                            continue
                         except ValueError:
-                            pass
+                            raise ExpressionError(
+                                f"invalid \\x hex escape at position {j}"
+                            ) from None
+                        j += 6
+                        continue
                     buf.append(_ESCAPES.get(nxt, nxt))
                     j += 2
                     continue

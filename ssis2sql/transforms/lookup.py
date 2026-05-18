@@ -13,24 +13,20 @@ match are closer to an INNER JOIN - a warning flags this so it can be tightened.
 """
 from __future__ import annotations
 
-from ..model import Component, ComponentKind
-from ..relation import RelColumn
-from .base import (
-    BuildContext,
-    Transpiler,
-    passthrough_columns,
-    register,
-    table_name,
-    wrap_sql_command,
-)
+from ..model import Component, ComponentKind, Port
+from ..relation import RelColumn, Relation
+from .base import merge_column, passthrough_columns, table_name, wrap_sql_command
+from .context import BuildContext
+from .registry import Transpiler, register
 
 
 @register(ComponentKind.LOOKUP)
 class LookupTranspiler(Transpiler):
+    """Lookup: emitted as a LEFT JOIN against the reference set's CTE."""
+
     def transpile(self, ctx: BuildContext, component: Component) -> None:
-        upstream = ctx.single_upstream(component)
+        upstream = self._require_upstream(ctx, component)
         if upstream is None:
-            ctx.warn(f"lookup {component.name!r} has no input - skipped")
             return
 
         match_output, nomatch_output = self._classify_outputs(ctx, component)
@@ -52,6 +48,7 @@ class LookupTranspiler(Transpiler):
             ctx.make_relation(
                 component, match_output, passthrough_columns(ctx, upstream),
                 ctx.from_clause(upstream), name_hint=component.name,
+                depends_on=(upstream,),
             )
             return
 
@@ -68,13 +65,17 @@ class LookupTranspiler(Transpiler):
             f"set to fail on no-match, change LEFT JOIN to INNER JOIN for exact equivalence"
         )
 
-        self._emit_match(ctx, component, match_output, upstream, copy_cols, from_sql)
+        self._emit_match(ctx, component, match_output, upstream, ref_relation, copy_cols, from_sql)
         if nomatch_output is not None:
-            self._emit_nomatch(ctx, component, nomatch_output, upstream, join_pairs, from_sql)
+            self._emit_nomatch(
+                ctx, component, nomatch_output, upstream, ref_relation, join_pairs, from_sql
+            )
 
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _classify_outputs(ctx, component):
+    def _classify_outputs(
+        ctx: BuildContext, component: Component
+    ) -> tuple[Port | None, Port | None]:
         match_output = None
         nomatch_output = None
         for out in component.non_error_outputs():
@@ -90,8 +91,8 @@ class LookupTranspiler(Transpiler):
         return match_output, nomatch_output
 
     @staticmethod
-    def _join_keys(component) -> list:
-        pairs = []
+    def _join_keys(component: Component) -> list[tuple[str, str]]:
+        pairs: list[tuple[str, str]] = []
         for inp in component.inputs:
             for ic in inp.columns:
                 ref_col = ic.properties.get("JoinToReferenceColumn")
@@ -99,7 +100,13 @@ class LookupTranspiler(Transpiler):
                     pairs.append((ic.name, ref_col.strip()))
         return pairs
 
-    def _reference_cte(self, ctx, component, join_pairs, copy_cols):
+    def _reference_cte(
+        self,
+        ctx: BuildContext,
+        component: Component,
+        join_pairs: list[tuple[str, str]],
+        copy_cols: list[tuple[str, str]],
+    ) -> Relation:
         ref_names: list[str] = []
         seen: set[str] = set()
         for _, rk in join_pairs:
@@ -127,34 +134,48 @@ class LookupTranspiler(Transpiler):
                 body = f"SELECT\n{projection}\nFROM /* lookup reference table */ _ref"
 
         ref_columns = [RelColumn(n, ctx.quote(n)) for n in ref_names]
-        return ctx.emit_internal_cte(component, f"{component.name}_Ref", ref_columns, body)
+        return ctx.emit_internal_cte(
+            component, ref_columns, body, name_hint=f"{component.name}_Ref"
+        )
 
-    def _emit_match(self, ctx, component, match_output, upstream, copy_cols, from_sql):
+    def _emit_match(
+        self,
+        ctx: BuildContext,
+        component: Component,
+        match_output: Port,
+        upstream: Relation,
+        ref_relation: Relation,
+        copy_cols: list[tuple[str, str]],
+        from_sql: str,
+    ) -> None:
         columns = passthrough_columns(ctx, upstream, "L")
-        present = {c.name.lower() for c in columns}
+        index = {c.name.lower(): i for i, c in enumerate(columns)}
         for out_name, ref_name in copy_cols:
-            new_col = RelColumn(out_name, f"R.{ctx.quote(ref_name)}")
-            if out_name.lower() in present:
+            if out_name.lower() in index:
                 ctx.warn(
                     f"lookup {component.name!r}: reference column [{out_name}] collides with "
                     f"an upstream column - the reference value is used"
                 )
-                for i, col in enumerate(columns):
-                    if col.name.lower() == out_name.lower():
-                        columns[i] = new_col
-                        break
-            else:
-                columns.append(new_col)
-                present.add(out_name.lower())
+            merge_column(columns, index, RelColumn(out_name, f"R.{ctx.quote(ref_name)}"))
         ctx.make_relation(
-            component, match_output, columns, from_sql, name_hint=f"{component.name}_Match"
+            component, match_output, columns, from_sql,
+            name_hint=f"{component.name}_Match", depends_on=(upstream, ref_relation),
         )
 
-    def _emit_nomatch(self, ctx, component, nomatch_output, upstream, join_pairs, from_sql):
+    def _emit_nomatch(
+        self,
+        ctx: BuildContext,
+        component: Component,
+        nomatch_output: Port,
+        upstream: Relation,
+        ref_relation: Relation,
+        join_pairs: list[tuple[str, str]],
+        from_sql: str,
+    ) -> None:
         columns = passthrough_columns(ctx, upstream, "L")
         first_ref = join_pairs[0][1]
         ctx.make_relation(
             component, nomatch_output, columns, from_sql,
             where=f"R.{ctx.quote(first_ref)} IS NULL",
-            name_hint=f"{component.name}_NoMatch",
+            name_hint=f"{component.name}_NoMatch", depends_on=(upstream, ref_relation),
         )

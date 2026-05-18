@@ -10,3 +10,7 @@ __pycache__/
 build/
 dist/
 generated_scripts/
+
+# desloppify
+.venv-desloppify/
+.desloppify/

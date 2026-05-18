@@ -1,13 +1,10 @@
-"""SQL dialect concerns - identifier quoting and type rendering.
+"""SQL dialect concerns - identifier quoting.
 
 Only T-SQL is implemented. The class is kept behind a small interface so a
 future dialect (PostgreSQL, Snowflake) can be slotted in without touching the
-transpilers, which only ever call :meth:`quote`, :meth:`quote_qualified` and
-:meth:`column_type`.
+transpilers, which only ever call :meth:`quote` and :meth:`quote_qualified`.
 """
 from __future__ import annotations
-
-from .sqltypes import tsql_type_from_column
 
 
 class TSqlDialect:
@@ -26,10 +23,6 @@ class TSqlDialect:
         if not parts:
             return self.quote(name)
         return ".".join(self.quote(p) for p in parts)
-
-    def column_type(self, col) -> str:
-        """Render the T-SQL type for a pipeline column."""
-        return tsql_type_from_column(col)
 
     @staticmethod
     def _split_qualified(name: str) -> list[str]:

@@ -12,35 +12,45 @@ Typical use::
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from ..observability import logger
 from .lexer import tokenize
-from .parser import Parser
+from .parser import Parser, parse_expression
 from .translator import Translator
 
 __all__ = ["tokenize", "Parser", "Translator", "translate_expression", "translate_condition"]
 
 
-def _build(text: str):
-    return Parser(tokenize(text)).parse()
-
-
-def translate_expression(text: str, column_resolver=None, variable_resolver=None):
+def translate_expression(
+    text: str,
+    column_resolver: Callable[[str], str] | None = None,
+    variable_resolver: Callable[[str, str], str] | None = None,
+) -> tuple[str, list[str]]:
     """Translate an SSIS expression used in *value* position (Derived Column).
 
-    Returns ``(sql_text, warnings)``.
+    Returns ``(sql_text, warnings)``. Unsupported constructs are reported in
+    ``warnings``; raises :class:`~ssis2sql.errors.ExpressionError` when ``text``
+    cannot be tokenised or parsed.
     """
     tr = Translator(column_resolver, variable_resolver)
-    sql = tr.translate(_build(text))
+    sql = tr.translate(parse_expression(text))
     logger.debug("expression {!r} -> {!r}", text, sql)
     return sql, tr.warnings
 
 
-def translate_condition(text: str, column_resolver=None, variable_resolver=None):
+def translate_condition(
+    text: str,
+    column_resolver: Callable[[str], str] | None = None,
+    variable_resolver: Callable[[str, str], str] | None = None,
+) -> tuple[str, list[str]]:
     """Translate an SSIS expression used in *boolean* position (a WHERE clause).
 
-    Returns ``(sql_predicate, warnings)``.
+    Returns ``(sql_predicate, warnings)``. Unsupported constructs are reported
+    in ``warnings``; raises :class:`~ssis2sql.errors.ExpressionError` when
+    ``text`` cannot be tokenised or parsed.
     """
     tr = Translator(column_resolver, variable_resolver)
-    sql = tr.translate_bool(_build(text))
+    sql = tr.translate_bool(parse_expression(text))
     logger.debug("condition {!r} -> {!r}", text, sql)
     return sql, tr.warnings

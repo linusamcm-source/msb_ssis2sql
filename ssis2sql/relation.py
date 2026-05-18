@@ -30,16 +30,19 @@ class Relation:
     """A named result set: the SQL realisation of one component output.
 
     The CTE body that defines the relation is held by the build context
-    (``ctx.ctes[name]``); a relation only needs its name and exposed columns.
+    (``ctx.ctes[name]``); a relation needs its name, its exposed columns, and
+    any row order a Sort imposed on it.
     """
 
     name: str                                  # CTE name
-    columns: list = field(default_factory=list)  # list[RelColumn]
+    columns: list[RelColumn] = field(default_factory=list)
+    # ORDER BY clause set by a Sort; read by a destination it feeds directly.
+    order_by: str = ""
 
     def column_names(self) -> list[str]:
         return [c.name for c in self.columns]
 
-    def find(self, name: str):
+    def find(self, name: str) -> RelColumn | None:
         """Case-insensitive lookup by exposed column name."""
         low = name.lower()
         for col in self.columns:
@@ -47,7 +50,7 @@ class Relation:
                 return col
         return None
 
-    def find_by_lineage(self, lineage_id: str):
+    def find_by_lineage(self, lineage_id: str) -> RelColumn | None:
         """Lookup by the upstream lineage id this column was produced under."""
         if not lineage_id:
             return None

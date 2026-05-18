@@ -14,9 +14,11 @@ coerces between its boolean and DT_BOOL/integer worlds.
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from . import ast
 from ..errors import ExpressionError
-from ..sqltypes import tsql_type
+from ..sqltypes import sql_string_literal, tsql_type
 
 # SSIS datepart strings -> T-SQL datepart keywords.
 _DATEPART = {
@@ -51,37 +53,24 @@ def default_column_resolver(name: str) -> str:
     return f"[{name}]"
 
 
-def sql_string_literal(value: str) -> str:
-    """Render a Python string as a T-SQL Unicode literal.
-
-    Control characters cannot live inside a literal, so they are spliced out
-    as ``NCHAR(n)`` concatenations - ``"a\\nb"`` -> ``(N'a' + NCHAR(10) + N'b')``.
-    """
-    parts: list[str] = []
-    buf: list[str] = []
-    for ch in value:
-        if ord(ch) < 32:
-            if buf:
-                parts.append("N'" + "".join(buf).replace("'", "''") + "'")
-                buf = []
-            parts.append(f"NCHAR({ord(ch)})")
-        else:
-            buf.append(ch)
-    if buf or not parts:
-        parts.append("N'" + "".join(buf).replace("'", "''") + "'")
-    return parts[0] if len(parts) == 1 else "(" + " + ".join(parts) + ")"
-
-
 class Translator:
     """Walk an expression AST and emit T-SQL.
 
     ``column_resolver(name) -> sql`` and ``variable_resolver(ns, name) -> sql``
     let a caller (a join transpiler, say) control how identifiers are rendered.
-    Unsupported constructs are appended to :attr:`warnings` rather than raised,
-    so one odd expression does not abort a whole package.
+
+    Two failure modes, deliberately different. An unmapped SSIS function or an
+    unknown datepart is recorded in :attr:`warnings` and emitted verbatim, so
+    one odd expression does not abort a whole package. A structurally invalid
+    expression - wrong function arity, an unknown node or operator type -
+    raises :class:`~ssis2sql.errors.ExpressionError`.
     """
 
-    def __init__(self, column_resolver=None, variable_resolver=None):
+    def __init__(
+        self,
+        column_resolver: Callable[[str], str] | None = None,
+        variable_resolver: Callable[[str, str], str] | None = None,
+    ) -> None:
         self._resolve_column = column_resolver or default_column_resolver
         self._resolve_variable = variable_resolver
         self.warnings: list[str] = []
@@ -133,8 +122,7 @@ class Translator:
         if isinstance(node, ast.Literal) and node.kind == "bool":
             return "(1 = 1)" if node.value else "(1 = 0)"
         if isinstance(node, ast.FunctionCall) and node.name.upper() == "ISNULL":
-            if len(node.args) != 1:
-                raise ExpressionError("SSIS ISNULL() takes exactly one argument")
+            self._expect_arity(node.args, "ISNULL", 1)
             return f"{self._value(node.args[0])} IS NULL"
         # A value in predicate position: SSIS coerces non-zero to true.
         return f"{self._raw_value(node)} <> 0"
@@ -191,8 +179,10 @@ class Translator:
     def _binary(self, node: ast.Binary) -> str:
         if node.op in _ARITH or node.op in _BITWISE:
             return f"({self._value(node.left)} {node.op} {self._value(node.right)})"
-        # comparison / logical reaching here is value context -> 1/0 result
-        return f"CASE WHEN {self._bool(node)} THEN 1 ELSE 0 END"
+        if node.op in _COMPARISON or node.op in ("&&", "||"):
+            # comparison / logical in value context -> 1/0 result
+            return f"CASE WHEN {self._bool(node)} THEN 1 ELSE 0 END"
+        raise ExpressionError(f"unknown binary operator {node.op!r}")
 
     # ------------------------------------------------------------------ #
     # function translation
@@ -209,13 +199,18 @@ class Translator:
         )
         return f"/* unmapped */ {node.name}({self._args(node.args)})"
 
-    def _args(self, args: list) -> str:
+    def _args(self, args: list[ast.Node]) -> str:
         return ", ".join(self._value(a) for a in args)
 
-    def _one_arg(self, args: list, name: str) -> str:
+    @staticmethod
+    def _expect_arity(args: list[ast.Node], name: str, n: int) -> None:
+        """Raise :class:`ExpressionError` unless ``args`` holds exactly ``n`` entries."""
+        if len(args) != n:
+            raise ExpressionError(f"SSIS {name}() takes exactly {n} argument(s)")
+
+    def _one_arg(self, args: list[ast.Node], name: str) -> str:
         """Emit a single-argument function call, rejecting any other arity."""
-        if len(args) != 1:
-            raise ExpressionError(f"SSIS {name}() takes exactly one argument")
+        self._expect_arity(args, name, 1)
         return self._value(args[0])
 
     def _datepart(self, node: ast.Node) -> str:
@@ -230,28 +225,25 @@ class Translator:
         return self._value(node)
 
     # -- null handling -------------------------------------------------- #
-    def _fn_isnull(self, args: list) -> str:
+    def _fn_isnull(self, args: list[ast.Node]) -> str:
         # value context (predicate context is handled directly in _bool)
-        if len(args) != 1:
-            raise ExpressionError("SSIS ISNULL() takes exactly one argument")
+        self._expect_arity(args, "ISNULL", 1)
         return f"CASE WHEN {self._value(args[0])} IS NULL THEN 1 ELSE 0 END"
 
-    def _fn_replacenull(self, args: list) -> str:
-        if len(args) != 2:
-            raise ExpressionError("REPLACENULL() takes exactly two arguments")
+    def _fn_replacenull(self, args: list[ast.Node]) -> str:
+        self._expect_arity(args, "REPLACENULL", 2)
         return f"COALESCE({self._value(args[0])}, {self._value(args[1])})"
 
     # -- string functions ---------------------------------------------- #
-    def _fn_trim(self, args: list) -> str:
+    def _fn_trim(self, args: list[ast.Node]) -> str:
         return f"LTRIM(RTRIM({self._one_arg(args, 'TRIM')}))"
 
-    def _fn_codepoint(self, args: list) -> str:
+    def _fn_codepoint(self, args: list[ast.Node]) -> str:
         return f"UNICODE({self._one_arg(args, 'CODEPOINT')})"
 
-    def _fn_findstring(self, args: list) -> str:
+    def _fn_findstring(self, args: list[ast.Node]) -> str:
         # SSIS: FINDSTRING(character_expression, searchstring, occurrence)
-        if len(args) != 3:
-            raise ExpressionError("FINDSTRING() takes exactly three arguments")
+        self._expect_arity(args, "FINDSTRING", 3)
         haystack, needle, occurrence = args
         is_first = isinstance(occurrence, ast.Literal) and str(occurrence.value).strip() in ("1", "1.0")
         if not is_first:
@@ -261,31 +253,28 @@ class Translator:
         return f"CHARINDEX({self._value(needle)}, {self._value(haystack)})"
 
     # -- numeric functions --------------------------------------------- #
-    def _fn_ln(self, args: list) -> str:
+    def _fn_ln(self, args: list[ast.Node]) -> str:
         return f"LOG({self._one_arg(args, 'LN')})"          # SSIS LN -> natural log
 
-    def _fn_log(self, args: list) -> str:
+    def _fn_log(self, args: list[ast.Node]) -> str:
         return f"LOG10({self._one_arg(args, 'LOG')})"       # SSIS LOG -> base-10 log
 
     # -- date / time functions ----------------------------------------- #
-    def _fn_dateadd(self, args: list) -> str:
-        if len(args) != 3:
-            raise ExpressionError("DATEADD() takes exactly three arguments")
+    def _fn_dateadd(self, args: list[ast.Node]) -> str:
+        self._expect_arity(args, "DATEADD", 3)
         part, number, date = args
         return f"DATEADD({self._datepart(part)}, {self._value(number)}, {self._value(date)})"
 
-    def _fn_datediff(self, args: list) -> str:
-        if len(args) != 3:
-            raise ExpressionError("DATEDIFF() takes exactly three arguments")
+    def _fn_datediff(self, args: list[ast.Node]) -> str:
+        self._expect_arity(args, "DATEDIFF", 3)
         part, start, end = args
         return f"DATEDIFF({self._datepart(part)}, {self._value(start)}, {self._value(end)})"
 
-    def _fn_datepart(self, args: list) -> str:
-        if len(args) != 2:
-            raise ExpressionError("DATEPART() takes exactly two arguments")
+    def _fn_datepart(self, args: list[ast.Node]) -> str:
+        self._expect_arity(args, "DATEPART", 2)
         part, date = args
         return f"DATEPART({self._datepart(part)}, {self._value(date)})"
 
-    def _fn_null(self, _args: list) -> str:
+    def _fn_null(self, _args: list[ast.Node]) -> str:
         # NULL() reached as a call rather than the NULL(DT_..) literal form.
         return "NULL"

@@ -6,20 +6,24 @@ external metadata columns when present, and falls back to matching names.
 """
 from __future__ import annotations
 
-from ..model import Component, ComponentKind
-from .base import BuildContext, Sink, Transpiler, register, table_name
+from ..model import Component, ComponentKind, Port
+from ..relation import Relation
+from .base import table_name
+from .context import BuildContext, Sink
+from .registry import Transpiler, register
 
 
 @register(ComponentKind.OLEDB_DESTINATION, ComponentKind.FLATFILE_DESTINATION)
 class DestinationTranspiler(Transpiler):
+    """OLE DB / flat-file destination: the terminal INSERT (or SELECT)."""
+
     def transpile(self, ctx: BuildContext, component: Component) -> None:
-        upstream = ctx.single_upstream(component)
+        upstream = self._require_upstream(ctx, component)
         if upstream is None:
-            ctx.warn(f"destination {component.name!r} has no input - skipped")
             return
 
         input_port = component.inputs[0] if component.inputs else None
-        mapping = self._column_mapping(ctx, component, input_port, upstream)
+        mapping = self._column_mapping(ctx, input_port, upstream)
         if not mapping:
             ctx.warn(
                 f"destination {component.name!r}: no column mapping found - "
@@ -27,11 +31,8 @@ class DestinationTranspiler(Transpiler):
             )
             mapping = [(c.name, ctx.quote(c.name)) for c in upstream.columns]
 
-        order_by = ""
-        if input_port is not None:
-            edge = ctx.graph.edge_into(input_port)
-            if edge is not None:
-                order_by = ctx.sort_orders.get(edge.src_output.ref_id, "")
+        # A Sort feeding this destination records its ORDER BY on the relation.
+        order_by = upstream.order_by
 
         if component.kind == ComponentKind.FLATFILE_DESTINATION:
             sql = self._flat_file(ctx, component, upstream, mapping, order_by)
@@ -42,12 +43,14 @@ class DestinationTranspiler(Transpiler):
 
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _column_mapping(ctx, component, input_port, upstream) -> list:
+    def _column_mapping(
+        ctx: BuildContext, input_port: Port | None, upstream: Relation
+    ) -> list[tuple[str, str]]:
         """Return ``[(target_column, source_expression), ...]``."""
         if input_port is None:
             return []
         external = {ec.ref_id: ec for ec in input_port.external_columns if ec.ref_id}
-        mapping: list = []
+        mapping: list[tuple[str, str]] = []
         for ic in input_port.columns:
             source = upstream.find(ic.name)
             source_expr = ctx.quote(source.name) if source is not None else ctx.quote(ic.name)
@@ -56,7 +59,14 @@ class DestinationTranspiler(Transpiler):
             mapping.append((target, source_expr))
         return mapping
 
-    def _insert(self, ctx, component, upstream, mapping, order_by) -> str:
+    def _insert(
+        self,
+        ctx: BuildContext,
+        component: Component,
+        upstream: Relation,
+        mapping: list[tuple[str, str]],
+        order_by: str,
+    ) -> str:
         table = table_name(component)
         if table:
             table_sql = ctx.dialect.quote_qualified(table)
@@ -80,7 +90,14 @@ class DestinationTranspiler(Transpiler):
             sql += f"\nORDER BY {order_by}"
         return sql + ";"
 
-    def _flat_file(self, ctx, component, upstream, mapping, order_by) -> str:
+    def _flat_file(
+        self,
+        ctx: BuildContext,
+        component: Component,
+        upstream: Relation,
+        mapping: list[tuple[str, str]],
+        order_by: str,
+    ) -> str:
         ctx.warn(
             f"flat-file destination {component.name!r}: emitted as a SELECT - there is no "
             f"target table to INSERT into"

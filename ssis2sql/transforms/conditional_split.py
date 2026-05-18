@@ -10,25 +10,28 @@ from __future__ import annotations
 
 from ..errors import ExpressionError
 from ..expressions import translate_condition
-from ..model import Component, ComponentKind
+from ..model import Component, ComponentKind, Port
 from ..util import to_int
-from .base import BuildContext, Transpiler, passthrough_columns, register
+from .base import passthrough_columns
+from .context import BuildContext
+from .registry import Transpiler, register
 
 
 @register(ComponentKind.CONDITIONAL_SPLIT)
 class ConditionalSplitTranspiler(Transpiler):
+    """Conditional Split: one filtered CTE per output, first-match-wins."""
+
     def transpile(self, ctx: BuildContext, component: Component) -> None:
-        upstream = ctx.single_upstream(component)
+        upstream = self._require_upstream(ctx, component)
         if upstream is None:
-            ctx.warn(f"conditional split {component.name!r} has no input - skipped")
             return
 
         resolve_col = ctx.column_resolver()
         resolve_var = ctx.make_variable_resolver()
 
         # Classify every non-error output as conditional or default.
-        conditional: list = []   # (output, expr_text, eval_order, doc_index)
-        defaults: list = []
+        conditional: list[tuple[Port, str, int | None, int]] = []  # output, expr, eval order, doc index
+        defaults: list[Port] = []
         for idx, out in enumerate(component.non_error_outputs()):
             expr_text = (
                 out.properties.get("FriendlyExpression")
@@ -61,6 +64,7 @@ class ConditionalSplitTranspiler(Transpiler):
             ctx.make_relation(
                 component, out, passthrough, from_sql,
                 where=where, name_hint=f"{component.name}_{out.name}",
+                depends_on=(upstream,),
             )
             negations.append(f"NOT ({predicate})")
 
@@ -69,4 +73,5 @@ class ConditionalSplitTranspiler(Transpiler):
             ctx.make_relation(
                 component, out, passthrough, from_sql,
                 where=where, name_hint=f"{component.name}_{out.name}",
+                depends_on=(upstream,),
             )

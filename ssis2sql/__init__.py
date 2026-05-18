@@ -15,7 +15,6 @@ from .errors import (
     Ssis2SqlError,
     ParseError,
     ExpressionError,
-    UnsupportedComponentError,
     GraphError,
 )
 from .generator import ConvertOptions, ConversionResult, convert_file, convert_package
@@ -34,6 +33,5 @@ __all__ = [
     "Ssis2SqlError",
     "ParseError",
     "ExpressionError",
-    "UnsupportedComponentError",
     "GraphError",
 ]

@@ -7,10 +7,11 @@ designer's explicit mapping metadata.
 """
 from __future__ import annotations
 
-from ..model import Component, ComponentKind
-from ..relation import RelColumn
+from ..model import Component, ComponentKind, Port
+from ..relation import RelColumn, Relation
 from ..util import to_int
-from .base import BuildContext, Transpiler, register
+from .context import BuildContext
+from .registry import Transpiler, register
 
 
 @register(ComponentKind.UNION_ALL, ComponentKind.MERGE)
@@ -24,7 +25,7 @@ class UnionAllTranspiler(Transpiler):
             return
         output = outputs[0]
 
-        branches: list = []
+        branches: list[Relation] = []
         for inp in component.inputs:
             relation = ctx.upstream_relation(inp)
             if relation is not None:
@@ -62,7 +63,10 @@ class UnionAllTranspiler(Transpiler):
                       getattr(oc, "lineage_id", ""))
             for oc in out_cols
         ]
-        ctx.emit_raw_cte(component, output, columns, body, name_hint=component.name)
+        ctx.emit_raw_cte(
+            component, output, columns, body,
+            name_hint=component.name, depends_on=tuple(branches),
+        )
 
 
 @register(ComponentKind.MERGE_JOIN)
@@ -107,11 +111,16 @@ class MergeJoinTranspiler(Transpiler):
             f"{join_type} {ctx.quote(right.name)} AS R ON {on_clause}"
         )
         columns = self._output_columns(ctx, component, output, left, right)
-        ctx.make_relation(component, output, columns, from_sql, name_hint=component.name)
+        ctx.make_relation(
+            component, output, columns, from_sql,
+            name_hint=component.name, depends_on=(left, right),
+        )
 
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _sides(ctx, component):
+    def _sides(
+        ctx: BuildContext, component: Component
+    ) -> tuple[Relation | None, Relation | None]:
         left = right = None
         for inp in component.inputs:
             relation = ctx.upstream_relation(inp)
@@ -127,7 +136,9 @@ class MergeJoinTranspiler(Transpiler):
         return left, right
 
     @staticmethod
-    def _join_keys(component, left, right) -> list:
+    def _join_keys(
+        component: Component, left: Relation, right: Relation
+    ) -> list[tuple[str, str]]:
         left_cols = {c.name.lower(): c.name for c in left.columns}
         right_cols = {c.name.lower(): c.name for c in right.columns}
         keys = [(left_cols[k], right_cols[k]) for k in left_cols if k in right_cols]
@@ -137,8 +148,14 @@ class MergeJoinTranspiler(Transpiler):
         return keys
 
     @staticmethod
-    def _output_columns(ctx, component, output, left, right) -> list:
-        columns: list = []
+    def _output_columns(
+        ctx: BuildContext,
+        component: Component,
+        output: Port,
+        left: Relation,
+        right: Relation,
+    ) -> list[RelColumn]:
+        columns: list[RelColumn] = []
         if output.columns:
             for oc in output.columns:
                 if left.find(oc.name) is not None:

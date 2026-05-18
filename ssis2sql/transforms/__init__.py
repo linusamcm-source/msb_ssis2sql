@@ -1,12 +1,14 @@
 """Component transpilers.
 
 Importing this package has the side effect of registering every transpiler
-(each module applies the :func:`~ssis2sql.transforms.base.register` decorator
-at import time). The generator only needs :func:`get_transpiler`.
+(each module applies the :func:`~ssis2sql.transforms.registry.register`
+decorator at import time). The generator only needs :func:`get_transpiler`.
 """
 from __future__ import annotations
 
-from .base import BuildContext, Sink, Transpiler, get_transpiler, register, registered_kinds
+from .base import sanitise_identifier
+from .context import BuildContext, Sink
+from .registry import Transpiler, get_transpiler, register
 
 # Import order is irrelevant - each module self-registers. Listed so the
 # registry is fully populated the moment this package is imported.
@@ -25,5 +27,5 @@ __all__ = [
     "Transpiler",
     "get_transpiler",
     "register",
-    "registered_kinds",
+    "sanitise_identifier",
 ]

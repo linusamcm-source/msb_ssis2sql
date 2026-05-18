@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-def to_int(value, default=None):
+def to_int(value: object, default: int | None = None) -> int | None:
     """Best-effort int coercion for SSIS property strings ('1', '1.0', '')."""
     if value in (None, ""):
         return default

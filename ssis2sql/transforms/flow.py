@@ -7,10 +7,12 @@ the pass-through fallback with a prominent warning.
 """
 from __future__ import annotations
 
-from ..expressions.translator import sql_string_literal
 from ..model import Component, ComponentKind
 from ..relation import RelColumn
-from .base import BuildContext, Transpiler, passthrough_columns, register
+from ..sqltypes import sql_string_literal
+from .base import passthrough_columns
+from .context import BuildContext
+from .registry import Transpiler, register
 
 
 @register(ComponentKind.MULTICAST)
@@ -18,9 +20,8 @@ class MulticastTranspiler(Transpiler):
     """One input fans out to many identical outputs - all reuse the upstream relation."""
 
     def transpile(self, ctx: BuildContext, component: Component) -> None:
-        upstream = ctx.single_upstream(component)
+        upstream = self._require_upstream(ctx, component)
         if upstream is None:
-            ctx.warn(f"multicast {component.name!r} has no input - skipped")
             return
         for out in component.non_error_outputs():
             ctx.bind_output(out, upstream)
@@ -31,9 +32,8 @@ class RowCountTranspiler(Transpiler):
     """Row Count writes a variable and passes every row through unchanged."""
 
     def transpile(self, ctx: BuildContext, component: Component) -> None:
-        upstream = ctx.single_upstream(component)
+        upstream = self._require_upstream(ctx, component)
         if upstream is None:
-            ctx.warn(f"row count {component.name!r} has no input - skipped")
             return
         variable = component.property("VariableName") or component.property("VariableExpression")
         ctx.warn(
@@ -45,7 +45,7 @@ class RowCountTranspiler(Transpiler):
             ctx.bind_output(out, upstream)
 
 
-def _audit_expressions(package_name: str) -> dict:
+def _audit_expressions(package_name: str) -> dict[str, str]:
     """SSIS Audit 'AuditType' enum -> a T-SQL expression for the audit value."""
     return {
         "0": "CONVERT(NVARCHAR(36), NEWID())",   # ExecutionInstanceGUID
@@ -84,7 +84,8 @@ class AuditTranspiler(Transpiler):
             columns.append(RelColumn(oc.name, expr, oc.data_type, oc.lineage_id))
 
         ctx.make_relation(
-            component, output, columns, ctx.from_clause(upstream), name_hint=component.name
+            component, output, columns, ctx.from_clause(upstream),
+            name_hint=component.name, depends_on=(upstream,),
         )
 
 
@@ -109,7 +110,7 @@ class PassThroughFallbackTranspiler(Transpiler):
             f"component {component.name!r} ({component.kind.value}) has no behaviour-preserving "
             f"T-SQL translation - emitted as a pass-through; manual rework required"
         )
-        upstream = ctx.single_upstream(component)
+        upstream = self._require_upstream(ctx, component)
         if upstream is None:
             return
         for out in component.non_error_outputs():

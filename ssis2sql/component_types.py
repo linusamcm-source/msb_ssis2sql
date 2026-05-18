@@ -87,18 +87,6 @@ _GUIDS: dict[str, ComponentKind] = {
     "9cf90bf0-5bcc-4c63-b91d-1f322dc12c26": ComponentKind.DERIVED_COLUMN,
 }
 
-# Components that have no row-set semantics in plain SQL; the transpiler emits a
-# transparent pass-through and a warning rather than failing the whole package.
-PASS_THROUGH_KINDS = frozenset(
-    {
-        ComponentKind.MULTICAST,
-        ComponentKind.ROW_COUNT,
-        ComponentKind.AUDIT,
-        ComponentKind.CHARACTER_MAP,
-    }
-)
-
-
 def resolve(class_id: str) -> ComponentKind:
     """Map a raw ``componentClassID`` string onto a :class:`ComponentKind`."""
     if not class_id:

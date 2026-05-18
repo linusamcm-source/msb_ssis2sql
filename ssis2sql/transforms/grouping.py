@@ -1,22 +1,18 @@
 """Grouping transpilers: Aggregate and Sort.
 
 Aggregate becomes ``GROUP BY`` plus aggregate functions. Sort becomes an
-``ORDER BY`` - but a CTE cannot carry an ``ORDER BY``, so the clause is stashed
-on the context and applied by a destination if the Sort feeds one directly
-(the only place row order is observable in plain SQL).
+``ORDER BY`` - but a CTE cannot carry an ``ORDER BY``, so the clause is recorded
+on the relation the Sort produces and applied by a destination if the Sort
+feeds one directly (the only place row order is observable in plain SQL).
 """
 from __future__ import annotations
 
-from ..model import Component, ComponentKind
+from ..model import Column, Component, ComponentKind
 from ..relation import RelColumn
 from ..util import to_int
-from .base import (
-    BuildContext,
-    Transpiler,
-    passthrough_columns,
-    register,
-    resolve_source_column,
-)
+from .base import passthrough_columns, resolve_source_column
+from .context import BuildContext
+from .registry import Transpiler, register
 
 # SSIS Aggregate 'AggregationType' enum (integer form).
 _AGG_BY_INT = {0: "groupby", 1: "count", 2: "countdistinct", 3: "sum", 4: "avg", 5: "max", 6: "min"}
@@ -39,6 +35,8 @@ _AGG_BY_NAME = {
 
 @register(ComponentKind.AGGREGATE)
 class AggregateTranspiler(Transpiler):
+    """Aggregate: GROUP BY plus aggregate functions over the upstream relation."""
+
     def transpile(self, ctx: BuildContext, component: Component) -> None:
         io = self._single_io(ctx, component)
         if io is None:
@@ -50,11 +48,12 @@ class AggregateTranspiler(Transpiler):
             ctx.make_relation(
                 component, output, passthrough_columns(ctx, upstream),
                 ctx.from_clause(upstream), name_hint=component.name,
+                depends_on=(upstream,),
             )
             return
 
         input_hint = self._input_hints(component)
-        columns: list = []
+        columns: list[RelColumn] = []
         group_by: list[str] = []
 
         for oc in output.columns:
@@ -62,7 +61,7 @@ class AggregateTranspiler(Transpiler):
             agg_raw = oc.properties.get("AggregationType")
             if agg_raw is None and source:
                 agg_raw = input_hint.get(source.lower())
-            agg = self._normalise(ctx, agg_raw, component, oc)
+            agg = self._normalise_aggregation(ctx, agg_raw, component, oc)
             expr = self._aggregate_expr(ctx, agg, source)
             if agg == "groupby" and source:
                 group_by.append(ctx.quote(source))
@@ -70,13 +69,13 @@ class AggregateTranspiler(Transpiler):
 
         ctx.make_relation(
             component, output, columns, ctx.from_clause(upstream),
-            group_by=group_by or None, name_hint=component.name,
+            group_by=group_by or None, name_hint=component.name, depends_on=(upstream,),
         )
 
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _input_hints(component) -> dict:
-        hints: dict = {}
+    def _input_hints(component: Component) -> dict[str, str]:
+        hints: dict[str, str] = {}
         for inp in component.inputs:
             for ic in inp.columns:
                 agg = ic.properties.get("AggregationType")
@@ -85,7 +84,9 @@ class AggregateTranspiler(Transpiler):
         return hints
 
     @staticmethod
-    def _normalise(ctx, raw, component, output_col) -> str:
+    def _normalise_aggregation(
+        ctx: BuildContext, raw: str | None, component: Component, output_col: Column
+    ) -> str:
         if raw is not None:
             text = str(raw).strip().lower().replace(" ", "")
             if text in _AGG_BY_NAME:
@@ -100,7 +101,7 @@ class AggregateTranspiler(Transpiler):
         return "groupby"
 
     @staticmethod
-    def _aggregate_expr(ctx, agg: str, source: str) -> str:
+    def _aggregate_expr(ctx: BuildContext, agg: str, source: str) -> str:
         if agg == "countall":
             return "COUNT(*)"
         if not source:
@@ -121,6 +122,8 @@ class AggregateTranspiler(Transpiler):
 
 @register(ComponentKind.SORT)
 class SortTranspiler(Transpiler):
+    """Sort: optional DISTINCT, with the ORDER BY stashed for a destination."""
+
     def transpile(self, ctx: BuildContext, component: Component) -> None:
         io = self._single_io(ctx, component)
         if io is None:
@@ -130,7 +133,7 @@ class SortTranspiler(Transpiler):
         eliminate = (component.property("EliminateDuplicates", "") or "").strip().lower()
         distinct = eliminate in ("true", "1", "-1", "yes")
 
-        keys: list = []   # (position, name, descending)
+        keys: list[tuple[int, str, bool]] = []   # (position, name, descending)
         for inp in component.inputs:
             for ic in inp.columns:
                 pos = to_int(
@@ -141,16 +144,16 @@ class SortTranspiler(Transpiler):
                     keys.append((abs(pos), ic.name, pos < 0))
         keys.sort(key=lambda k: k[0])
 
-        ctx.make_relation(
+        relation = ctx.make_relation(
             component, output, passthrough_columns(ctx, upstream),
             ctx.from_clause(upstream), distinct=distinct, name_hint=component.name,
+            depends_on=(upstream,),
         )
 
         if keys:
-            order_by = ", ".join(
+            relation.order_by = ", ".join(
                 f"{ctx.quote(name)}{' DESC' if desc else ' ASC'}" for _, name, desc in keys
             )
-            ctx.sort_orders[output.ref_id] = order_by
             ctx.warn(
                 f"sort {component.name!r}: intermediate row order is not preserved through a "
                 f"CTE - the ORDER BY is applied only if this Sort feeds a destination directly"

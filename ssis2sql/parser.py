@@ -16,6 +16,7 @@ the modern form to the legacy form, so one parser serves both.
 """
 from __future__ import annotations
 
+import os
 import xml.etree.ElementTree as ET
 
 from .component_types import resolve as resolve_kind
@@ -45,7 +46,7 @@ def _local(tag) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-def _attr(elem, name: str, default=None):
+def _attr(elem: ET.Element, name: str, default=None):
     """Look up an attribute by local name, ignoring namespace prefixes."""
     if name in elem.attrib:
         return elem.attrib[name]
@@ -55,7 +56,7 @@ def _attr(elem, name: str, default=None):
     return default
 
 
-def _prop(elem, name: str, default=None):
+def _prop(elem: ET.Element, name: str, default=None):
     """Read a value as a ``DTS:`` attribute, or a legacy ``<DTS:Property>`` child.
 
     Legacy packages store package/connection/task metadata as child elements
@@ -71,17 +72,17 @@ def _prop(elem, name: str, default=None):
     return default
 
 
-def _ref(elem) -> str:
+def _ref(elem: ET.Element) -> str:
     """Identity of a component / port / column: modern ``refId`` or legacy ``id``."""
     return _attr(elem, "refId", "") or _attr(elem, "id", "") or ""
 
 
-def _children(elem, name: str) -> list:
+def _children(elem: ET.Element, name: str) -> list[ET.Element]:
     """Direct child elements whose local name matches ``name``."""
     return [c for c in elem if _local(c.tag) == name]
 
 
-def _child(elem, name: str):
+def _child(elem: ET.Element | None, name: str) -> ET.Element | None:
     """First direct child element whose local name matches ``name``."""
     if elem is None:
         return None
@@ -95,7 +96,7 @@ def _child(elem, name: str):
 # public entry points
 # --------------------------------------------------------------------------- #
 @logged
-def parse_file(path) -> Package:
+def parse_file(path: str | os.PathLike) -> Package:
     """Parse a .dtsx file from disk."""
     try:
         tree = ET.parse(path)
@@ -118,7 +119,7 @@ def parse_string(text: str) -> Package:
     return parse_root(root)
 
 
-def parse_root(root) -> Package:
+def parse_root(root: ET.Element) -> Package:
     """Parse from a pre-loaded ``ElementTree`` root element."""
     if _local(root.tag) != "Executable":
         found = next((e for e in root.iter() if _local(e.tag) == "Executable"), None)
@@ -143,7 +144,7 @@ def parse_root(root) -> Package:
 # --------------------------------------------------------------------------- #
 # package-level objects
 # --------------------------------------------------------------------------- #
-def _parse_connection_managers(root, package: Package) -> None:
+def _parse_connection_managers(root: ET.Element, package: Package) -> None:
     # Modern: <DTS:ConnectionManagers> wrapper. Legacy: bare children.
     wrapper = _child(root, "ConnectionManagers")
     source = wrapper if wrapper is not None else root
@@ -151,7 +152,7 @@ def _parse_connection_managers(root, package: Package) -> None:
         package.connection_managers.append(_parse_connection_manager(cm))
 
 
-def _parse_connection_manager(elem) -> ConnectionManager:
+def _parse_connection_manager(elem: ET.Element) -> ConnectionManager:
     name = _prop(elem, "ObjectName", "") or ""
     ref = _ref(elem) or _prop(elem, "DTSID", "") or name
     creation = _prop(elem, "CreationName", "") or ""
@@ -173,7 +174,7 @@ def _parse_connection_manager(elem) -> ConnectionManager:
     )
 
 
-def _parse_variables(root, package: Package) -> None:
+def _parse_variables(root: ET.Element, package: Package) -> None:
     wrapper = _child(root, "Variables")
     if wrapper is not None:                                  # modern
         for var in _children(wrapper, "Variable"):
@@ -186,7 +187,7 @@ def _parse_variables(root, package: Package) -> None:
             package.variables.append(parsed)
 
 
-def _parse_variable(elem) -> Variable:
+def _parse_variable(elem: ET.Element) -> Variable:
     namespace = _prop(elem, "Namespace", "User") or "User"
     name = _prop(elem, "ObjectName", "") or ""
     value = ""
@@ -207,7 +208,7 @@ def _parse_variable(elem) -> Variable:
 # --------------------------------------------------------------------------- #
 # control flow
 # --------------------------------------------------------------------------- #
-def _collect_executables(parent, package: Package) -> None:
+def _collect_executables(parent: ET.Element, package: Package) -> None:
     """Walk the control flow, picking out data flows and Execute SQL tasks.
 
     Modern packages nest executables inside a ``<DTS:Executables>`` wrapper;
@@ -227,7 +228,7 @@ def _collect_executables(parent, package: Package) -> None:
         _collect_executables(ex, package)          # sequence containers / loops nest
 
 
-def _extract_exec_sql(obj_data) -> str:
+def _extract_exec_sql(obj_data: ET.Element | None) -> str:
     if obj_data is None:
         return ""
     task = _child(obj_data, "SqlTaskData")
@@ -239,7 +240,7 @@ def _extract_exec_sql(obj_data) -> str:
 # --------------------------------------------------------------------------- #
 # data flow
 # --------------------------------------------------------------------------- #
-def _parse_data_flow(executable, pipeline) -> DataFlow:
+def _parse_data_flow(executable: ET.Element, pipeline: ET.Element) -> DataFlow:
     name = _prop(executable, "ObjectName", "Data Flow Task") or "Data Flow Task"
     ref = _ref(executable) or _prop(executable, "DTSID", "") or name
     flow = DataFlow(name=name, ref_id=ref)
@@ -287,7 +288,7 @@ def _fill_input_column_names(flow: DataFlow) -> None:
                     col.name = name_by_lineage.get(col.upstream_lineage_id, "")
 
 
-def _parse_component(elem) -> Component:
+def _parse_component(elem: ET.Element) -> Component:
     comp = Component(
         ref_id=_ref(elem),
         name=_attr(elem, "name", "") or "",
@@ -326,9 +327,9 @@ def _parse_component(elem) -> Component:
     return comp
 
 
-def _parse_properties(elem) -> dict:
+def _parse_properties(elem: ET.Element) -> dict[str, str]:
     """Read a pipeline ``<properties>`` block into a ``{name: text}`` dict."""
-    result: dict = {}
+    result: dict[str, str] = {}
     container = _child(elem, "properties")
     if container is None:
         return result
@@ -339,7 +340,7 @@ def _parse_properties(elem) -> dict:
     return result
 
 
-def _parse_input(elem) -> Port:
+def _parse_input(elem: ET.Element) -> Port:
     port = Port(
         ref_id=_ref(elem),
         name=_attr(elem, "name", "") or "",
@@ -368,7 +369,7 @@ def _parse_input(elem) -> Port:
     return port
 
 
-def _parse_output(elem) -> Port:
+def _parse_output(elem: ET.Element) -> Port:
     port = Port(
         ref_id=_ref(elem),
         name=_attr(elem, "name", "") or "",
@@ -398,9 +399,9 @@ def _parse_output(elem) -> Port:
     return port
 
 
-def _parse_external_columns(elem) -> list:
+def _parse_external_columns(elem: ET.Element) -> list[Column]:
     """Parse ``<externalMetadataColumns>`` - the shape of a real source/target table."""
-    result: list = []
+    result: list[Column] = []
     container = _child(elem, "externalMetadataColumns")
     if container is None:
         return result

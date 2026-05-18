@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from ..model import Component, ComponentKind
 from ..relation import RelColumn
-from .base import BuildContext, Transpiler, register, table_name, wrap_sql_command
+from .base import table_name, wrap_sql_command
+from .context import BuildContext
+from .registry import Transpiler, register
 
 
 @register(ComponentKind.OLEDB_SOURCE, ComponentKind.FLATFILE_SOURCE)

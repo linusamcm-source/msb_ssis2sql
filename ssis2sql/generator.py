@@ -8,17 +8,17 @@ the CTEs a destination actually depends on are included in its ``WITH`` block.
 from __future__ import annotations
 
 import datetime as _dt
+import os
 from dataclasses import dataclass, field
 
 from .dialect import TSqlDialect
 from .errors import GraphError
-from .expressions.translator import sql_string_literal
 from .graph import DataFlowGraph
-from .model import Package
+from .model import DataFlow, Package
 from .observability import logged, logger
 from .parser import parse_file
-from .transforms import BuildContext, get_transpiler
-from .transforms.base import sanitise_identifier
+from .sqltypes import sql_string_literal
+from .transforms import BuildContext, get_transpiler, sanitise_identifier
 
 
 @dataclass
@@ -35,7 +35,7 @@ class ConversionResult:
     """The output of a conversion: the SQL text plus any warnings raised."""
 
     sql: str
-    warnings: list = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     package: Package | None = None
 
     def __str__(self) -> str:
@@ -46,7 +46,7 @@ class ConversionResult:
 # public entry points
 # --------------------------------------------------------------------------- #
 @logged
-def convert_file(path, options: ConvertOptions | None = None) -> ConversionResult:
+def convert_file(path: str | os.PathLike, options: ConvertOptions | None = None) -> ConversionResult:
     """Parse a .dtsx file and convert it in one call."""
     return convert_package(parse_file(path), options)
 
@@ -62,7 +62,7 @@ def convert_package(package: Package, options: ConvertOptions | None = None) -> 
 
     sections: list[str] = []
     warnings: list[str] = []
-    referenced_vars: set = set()
+    referenced_vars: set[tuple[str, str]] = set()
 
     if not package.data_flows:
         no_flows = "package has no Data Flow Task - there are no transformations to convert"
@@ -70,10 +70,10 @@ def convert_package(package: Package, options: ConvertOptions | None = None) -> 
         logger.warning(no_flows)
 
     for data_flow in package.data_flows:
-        section, flow_warnings, flow_vars = _convert_data_flow(data_flow, package, dialect, options)
+        section, ctx = _convert_data_flow(data_flow, package, dialect, options)
         sections.append(section)
-        warnings.extend(flow_warnings)
-        referenced_vars |= flow_vars
+        warnings.extend(ctx.warnings)
+        referenced_vars |= set(ctx.referenced_variables)
 
     sql = _assemble(package, sections, referenced_vars, warnings, options)
     logger.info(
@@ -87,7 +87,17 @@ def convert_package(package: Package, options: ConvertOptions | None = None) -> 
 # per-data-flow conversion
 # --------------------------------------------------------------------------- #
 @logged
-def _convert_data_flow(data_flow, package, dialect, options):
+def _convert_data_flow(
+    data_flow: DataFlow,
+    package: Package,
+    dialect: TSqlDialect,
+    options: ConvertOptions,
+) -> tuple[str, BuildContext]:
+    """Transpile one data flow; return its rendered section and the build context.
+
+    The caller reads ``ctx.warnings`` and ``ctx.referenced_variables`` off the
+    returned context rather than having them unpacked into a positional tuple.
+    """
     graph = DataFlowGraph(data_flow)
     ctx = BuildContext(graph, package, dialect, options)
     logger.info(
@@ -128,10 +138,10 @@ def _convert_data_flow(data_flow, package, dialect, options):
         except Exception as exc:  # noqa: BLE001 - one bad component must not abort the run
             ctx.warn(f"component {component.name!r} failed to transpile: {exc}")
 
-    return _render_data_flow(data_flow, ctx), ctx.warnings, set(ctx.referenced_variables)
+    return _render_data_flow(data_flow, ctx), ctx
 
 
-def _render_data_flow(data_flow, ctx: BuildContext) -> str:
+def _render_data_flow(data_flow: DataFlow, ctx: BuildContext) -> str:
     rule = "-- " + "=" * 70
     lines = [rule, f"-- Data Flow Task: {data_flow.name}", rule]
 
@@ -145,16 +155,16 @@ def _render_data_flow(data_flow, ctx: BuildContext) -> str:
             reachable = _reachable_ctes(ctx, sink.reads_cte)
             statements.append(_with_block(ctx, reachable) + sink.sql)
     else:
+        # The early return above guarantees ctx.ctes is non-empty on this path.
         names = list(ctx.ctes)
-        if names:
-            ctx.warn(
-                f"data flow {data_flow.name!r} has no destination - emitted a SELECT preview "
-                f"of {names[-1]!r}"
-            )
-            statements.append(
-                _with_block(ctx, names)
-                + f"SELECT *\nFROM {ctx.dialect.quote(names[-1])};"
-            )
+        ctx.warn(
+            f"data flow {data_flow.name!r} has no destination - emitted a SELECT preview "
+            f"of {names[-1]!r}"
+        )
+        statements.append(
+            _with_block(ctx, names)
+            + f"SELECT *\nFROM {ctx.dialect.quote(names[-1])};"
+        )
 
     logger.info(
         "  data flow {!r} -> {} consolidated statement(s) from {} CTE(s)",
@@ -166,10 +176,12 @@ def _render_data_flow(data_flow, ctx: BuildContext) -> str:
 
 
 def _reachable_ctes(ctx: BuildContext, start_cte: str) -> list[str]:
-    """CTE names a sink depends on, found by chasing ``[name]`` references.
+    """CTE names a sink depends on, as the transitive closure of recorded edges.
 
-    ``ctx.ctes`` preserves emission order, which is a valid topological order,
-    so the reachable subset is simply filtered while keeping that order.
+    Each CTE records the upstream relations it was built from
+    (``ctx.cte_dependencies``), so reachability follows real wiring rather than
+    a scan of SQL text. ``ctx.ctes`` preserves emission order, a valid
+    topological order, so the reachable subset keeps that order.
     """
     if not start_cte or start_cte not in ctx.ctes:
         return list(ctx.ctes)
@@ -180,10 +192,9 @@ def _reachable_ctes(ctx: BuildContext, start_cte: str) -> list[str]:
         if name in reached or name not in ctx.ctes:
             continue
         reached.add(name)
-        body = ctx.ctes[name]
-        for other in ctx.ctes:
-            if other not in reached and f"[{other}]" in body:
-                stack.append(other)
+        for dependency in ctx.cte_dependencies.get(name, ()):
+            if dependency not in reached:
+                stack.append(dependency)
     return [name for name in ctx.ctes if name in reached]
 
 
@@ -200,7 +211,13 @@ def _with_block(ctx: BuildContext, names: list[str]) -> str:
 # --------------------------------------------------------------------------- #
 # document assembly
 # --------------------------------------------------------------------------- #
-def _assemble(package, sections, referenced_vars, warnings, options) -> str:
+def _assemble(
+    package: Package,
+    sections: list[str],
+    referenced_vars: set[tuple[str, str]],
+    warnings: list[str],
+    options: ConvertOptions,
+) -> str:
     blocks: list[str] = []
     if options.include_header:
         blocks.append(_header(package, warnings))
@@ -222,7 +239,7 @@ def _assemble(package, sections, referenced_vars, warnings, options) -> str:
     return "\n\n".join(b for b in blocks if b.strip()).rstrip() + "\n"
 
 
-def _declarations(package, referenced_vars) -> str:
+def _declarations(package: Package, referenced_vars: set[tuple[str, str]]) -> str:
     if not referenced_vars:
         return ""
     by_key = {(v.namespace, v.name): v for v in package.variables}
@@ -244,7 +261,7 @@ def _declarations(package, referenced_vars) -> str:
     return "\n".join(lines)
 
 
-def _exec_sql_section(package) -> str:
+def _exec_sql_section(package: Package) -> str:
     if not package.exec_sql_tasks:
         return ""
     lines = [
@@ -259,7 +276,7 @@ def _exec_sql_section(package) -> str:
     return "\n".join(lines)
 
 
-def _wrap_procedure(body: str, options) -> str:
+def _wrap_procedure(body: str, options: ConvertOptions) -> str:
     return (
         f"CREATE OR ALTER PROCEDURE {options.procedure_name}\n"
         f"AS\n"
@@ -271,7 +288,7 @@ def _wrap_procedure(body: str, options) -> str:
     )
 
 
-def _header(package, warnings) -> str:
+def _header(package: Package, warnings: list[str]) -> str:
     lines = ["/" + "*" * 74]
     lines.append(" * Generated by ssis2sql - SSIS to consolidated T-SQL transpiler.")
     lines.append(" *")
