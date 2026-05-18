@@ -161,3 +161,64 @@ def test_pass_through_fallback_warns_and_preserves_rows_for_a_script():
     assert any(
         "no behaviour-preserving" in w and "pass-through" in w for w in result.warnings
     )
+
+
+# --------------------------------------------------------------------------- #
+# Flow edge cases: disconnected transforms, a Row Count with no variable,
+# an Audit with an unrecognised AuditType.
+# --------------------------------------------------------------------------- #
+def test_multicast_with_no_input_is_skipped():
+    multicast = Component(ref_id="M", name="Orphan Cast", kind=ComponentKind.MULTICAST)
+    multicast.inputs = [Port(ref_id="M.in", name="Input")]
+    multicast.outputs = [Port(ref_id="M.out", name="Output")]
+    flow = DataFlow(name="DF", ref_id="DF", components=[multicast], paths=[])
+    result = convert_package(Package(name="P", data_flows=[flow]))
+    assert "Orphan_Cast" not in result.sql
+
+
+def test_row_count_without_a_variable_still_passes_rows_through():
+    row_count = Component(ref_id="RC", name="Count", kind=ComponentKind.ROW_COUNT)
+    row_count.inputs = [Port(ref_id="RC.in", name="Input")]
+    row_count.outputs = [Port(ref_id="RC.out", name="Output")]
+    result = convert_package(_single_chain(row_count, "RC.in", "RC.out"))
+    assert "INSERT INTO [dbo].[Out]" in result.sql
+    assert any("row count" in w for w in result.warnings)
+
+
+def test_audit_with_no_input_is_skipped():
+    audit = Component(ref_id="AU", name="Orphan Audit", kind=ComponentKind.AUDIT)
+    audit.inputs = [Port(ref_id="AU.in", name="Input")]
+    audit.outputs = [Port(ref_id="AU.out", name="Output")]
+    flow = DataFlow(name="DF", ref_id="DF", components=[audit], paths=[])
+    result = convert_package(Package(name="P", data_flows=[flow]))
+    assert "Orphan_Audit" not in result.sql
+
+
+def test_audit_with_an_unrecognised_audit_type_emits_null():
+    audit = Component(ref_id="AU", name="Tag", kind=ComponentKind.AUDIT)
+    audit_in = Port(ref_id="AU.in", name="Input")
+    audit_in.columns = [Column(name="Id", upstream_lineage_id="S.out.Id")]
+    audit_out = Port(ref_id="AU.out", name="Audit Output")
+    audit_out.columns = [
+        Column(ref_id="AU.out.Bogus", name="Bogus", data_type="wstr",
+               properties={"AuditType": "99"}),    # not a real AuditType
+    ]
+    audit.inputs = [audit_in]
+    audit.outputs = [audit_out]
+    pkg = _single_chain(audit, "AU.in", "AU.out")
+    pkg.data_flows[0].components[2].inputs[0].columns = [
+        Column(name="Id"), Column(name="Bogus"),
+    ]
+    result = convert_package(pkg)
+    assert "NULL AS [Bogus]" in result.sql
+    assert any("unrecognised AuditType" in w for w in result.warnings)
+
+
+def test_pass_through_fallback_with_no_input_is_skipped():
+    script = Component(ref_id="SC", name="Orphan Script", kind=ComponentKind.SCRIPT)
+    script.inputs = [Port(ref_id="SC.in", name="Input")]
+    script.outputs = [Port(ref_id="SC.out", name="Output")]
+    flow = DataFlow(name="DF", ref_id="DF", components=[script], paths=[])
+    result = convert_package(Package(name="P", data_flows=[flow]))
+    # The fallback still warns even when it cannot resolve an upstream.
+    assert any("no behaviour-preserving" in w for w in result.warnings)

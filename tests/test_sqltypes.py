@@ -124,3 +124,24 @@ def test_trailing_control_character_concatenation():
 
 def test_quotes_around_control_character_are_still_escaped():
     assert sql_string_literal("a'\nb'c") == "(N'a''' + NCHAR(10) + N'b''c')"
+
+
+# --------------------------------------------------------------------------- #
+# binary and decimal codes
+# --------------------------------------------------------------------------- #
+def test_dt_bytes_cast_uses_length_argument():
+    assert tsql_type("DT_BYTES", [16]) == "VARBINARY(16)"
+
+
+def test_dt_bytes_cast_defaults_without_args():
+    assert tsql_type("DT_BYTES") == "VARBINARY(8000)"
+
+
+def test_column_bytes_uses_its_length():
+    col = Column(name="Blob", data_type="bytes", length=64)
+    assert tsql_type_from_column(col) == "VARBINARY(64)"
+
+
+def test_column_decimal_uses_its_scale():
+    col = Column(name="Rate", data_type="decimal", scale=4)
+    assert tsql_type_from_column(col) == "DECIMAL(38,4)"

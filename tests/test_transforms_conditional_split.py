@@ -123,3 +123,65 @@ def test_conditional_split_orders_conditions_by_evaluation_order():
     sql = convert_package(Package(name="OrderPkg", data_flows=[flow])).sql
     # "Second" (EvaluationOrder 1) must negate the EvaluationOrder-0 condition.
     assert "WHERE NOT ([Amount] > 100) AND ([Amount] > 50)" in sql
+
+
+# --------------------------------------------------------------------------- #
+# Conditional-split edge cases: no input, untranslatable and warning conditions.
+# --------------------------------------------------------------------------- #
+def _split_with_one_condition(expr_text: str, target: str) -> Package:
+    """Source -> Conditional Split (single conditional output) -> destination."""
+    source = Component(
+        ref_id="S", name="Src", kind=ComponentKind.OLEDB_SOURCE,
+        properties={"SqlCommand": "SELECT Id FROM dbo.T"},
+    )
+    source_out = Port(ref_id="S.out", name="Output")
+    source_out.columns = [Column(ref_id="S.out.Id", name="Id", data_type="i4")]
+    source.outputs = [source_out]
+
+    split = Component(ref_id="C", name="Route", kind=ComponentKind.CONDITIONAL_SPLIT)
+    split.inputs = [Port(ref_id="C.in", name="Input")]
+    case = Port(ref_id="C.case", name="Case")
+    case.properties = {"Expression": expr_text, "EvaluationOrder": "0"}
+    split.outputs = [case]
+
+    dest = Component(
+        ref_id="D", name="Dst", kind=ComponentKind.OLEDB_DESTINATION,
+        properties={"OpenRowset": target},
+    )
+    dest_in = Port(ref_id="D.in", name="Input")
+    dest_in.columns = [Column(name="Id")]
+    dest.inputs = [dest_in]
+
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[source, split, dest],
+        paths=[
+            Path(ref_id="p1", name="p1", start_id="S.out", end_id="C.in"),
+            Path(ref_id="p2", name="p2", start_id="C.case", end_id="D.in"),
+        ],
+    )
+    return Package(name="SplitCasePkg", data_flows=[flow])
+
+
+def test_conditional_split_with_no_input_is_skipped():
+    split = Component(ref_id="C", name="Orphan Split",
+                      kind=ComponentKind.CONDITIONAL_SPLIT)
+    split.inputs = [Port(ref_id="C.in", name="Input")]
+    split.outputs = [Port(ref_id="C.out", name="Output")]
+    flow = DataFlow(name="DF", ref_id="DF", components=[split], paths=[])
+    result = convert_package(Package(name="P", data_flows=[flow]))
+    assert "Orphan_Split" not in result.sql
+
+
+def test_conditional_split_untranslatable_condition_falls_back_to_false():
+    # A structurally invalid condition; the transpiler emits 1 = 0 and warns.
+    result = convert_package(_split_with_one_condition("[Id] [Id]", "dbo.Bad"))
+    assert "WHERE (1 = 0)" in result.sql
+    assert any("conditional split case" in w for w in result.warnings)
+
+
+def test_conditional_split_condition_with_a_warning_is_reported():
+    # An unmapped SSIS function raises a translator warning, not an error.
+    result = convert_package(
+        _split_with_one_condition("WIDGETIZE([Id]) > 0", "dbo.Warned")
+    )
+    assert any("WIDGETIZE" in w for w in result.warnings)

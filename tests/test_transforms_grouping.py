@@ -205,6 +205,9 @@ def _aggregate_variants_package() -> Package:
         # A count over a column that resolves to nothing -> COUNT(*).
         Column(ref_id="A.out.Tally", name="Tally", data_type="i4",
                properties={"AggregationType": "count"}),
+        # A non-count aggregation over a column that resolves to nothing -> NULL.
+        Column(ref_id="A.out.SumNoSrc", name="SumNoSrc", data_type="i4",
+               properties={"AggregationType": "sum"}),
     ]
     aggregate.inputs = [agg_in]
     aggregate.outputs = [agg_out]
@@ -223,6 +226,7 @@ def test_aggregate_handles_textual_types_countall_hints_and_unknown_types():
     assert "COUNT(*) AS [RowCount]" in sql                  # 'countall'
     assert "MAX([Qty]) AS [Qty]" in sql                     # hint from the input column
     assert "COUNT(*) AS [Tally]" in sql                     # 'count' with no source
+    assert "NULL AS [SumNoSrc]" in sql                      # non-count agg, no source
     assert any("no recognisable" in w for w in result.warnings)   # the 'wat' type
 
 

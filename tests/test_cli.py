@@ -66,3 +66,20 @@ def test_inspect_prints_the_package_summary(example_path, capsys):
 def test_missing_subcommand_exits_nonzero():
     with pytest.raises(SystemExit):
         main([])
+
+
+def test_convert_unwritable_output_path_returns_exit_code_2(example_path, tmp_path, capsys):
+    # The parent directory does not exist, so write_text raises OSError.
+    target = tmp_path / "missing_dir" / "out.sql"
+    assert main(["convert", example_path, "-o", str(target)]) == 2
+    assert "error" in capsys.readouterr().err
+
+
+def test_module_entry_point_runs_main(monkeypatch):
+    """`python -m ssis2sql` executes __main__.py, which calls main()."""
+    import runpy
+    import sys
+
+    monkeypatch.setattr(sys, "argv", ["ssis2sql"])   # no subcommand -> argparse exits
+    with pytest.raises(SystemExit):
+        runpy.run_module("ssis2sql", run_name="__main__")

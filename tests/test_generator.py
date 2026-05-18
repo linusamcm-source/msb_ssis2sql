@@ -402,3 +402,47 @@ def test_header_truncates_a_long_warning_list():
     result = convert_package(Package(name="NoisyPkg", data_flows=[flow]))
     assert len(result.warnings) > 40
     assert "more." in result.sql
+
+
+def test_dangling_path_is_warned_about():
+    source = Component(
+        ref_id="S", name="Src", kind=ComponentKind.OLEDB_SOURCE,
+        properties={"SqlCommand": "SELECT Id FROM dbo.T"},
+    )
+    source_out = Port(ref_id="S.out", name="Output")
+    source_out.columns = [Column(ref_id="S.out.Id", name="Id", data_type="i4")]
+    source.outputs = [source_out]
+    # A path whose endpoints resolve to no real port.
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[source],
+        paths=[Path(ref_id="dp", name="Dangling", start_id="ghost.out", end_id="ghost.in")],
+    )
+    result = convert_package(Package(name="DanglePkg", data_flows=[flow]))
+    assert any("dangling" in w for w in result.warnings)
+
+
+def test_connected_error_output_is_warned_about():
+    source = Component(
+        ref_id="S", name="Src", kind=ComponentKind.OLEDB_SOURCE,
+        properties={"SqlCommand": "SELECT Id FROM dbo.T"},
+    )
+    source_out = Port(ref_id="S.out", name="Output")
+    source_out.columns = [Column(ref_id="S.out.Id", name="Id", data_type="i4")]
+    error_out = Port(ref_id="S.err", name="Error Output")
+    error_out.is_error = True
+    source.outputs = [source_out, error_out]
+
+    dest = Component(
+        ref_id="D", name="Dst", kind=ComponentKind.OLEDB_DESTINATION,
+        properties={"OpenRowset": "dbo.Errors"},
+    )
+    dest_in = Port(ref_id="D.in", name="Input")
+    dest_in.columns = [Column(name="Id")]
+    dest.inputs = [dest_in]
+
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[source, dest],
+        paths=[Path(ref_id="e", name="e", start_id="S.err", end_id="D.in")],
+    )
+    result = convert_package(Package(name="ErrOutPkg", data_flows=[flow]))
+    assert any("error output" in w for w in result.warnings)

@@ -194,3 +194,80 @@ def test_copy_column_duplicates_an_upstream_column():
     sql = convert_package(_copy_column_package()).sql
     # "Copy of Region" resolves to [Region] via the name heuristic.
     assert '[Region] AS [Copy of Region]' in sql
+
+
+# --------------------------------------------------------------------------- #
+# Column-op edge cases: pass-through columns, untranslatable expressions,
+# expression warnings, unresolved sources and disconnected transforms.
+# --------------------------------------------------------------------------- #
+def _derived_edge_cases_package() -> Package:
+    source, _ = _source()
+    derived = Component(ref_id="C", name="Edge Cols", kind=ComponentKind.DERIVED_COLUMN)
+    derived_in = Port(ref_id="C.in", name="Input")
+    derived_in.columns = [
+        Column(name="Amount", upstream_lineage_id="S.out.Amount"),
+        Column(name="Region", upstream_lineage_id="S.out.Region"),
+    ]
+    derived_out = Port(ref_id="C.out", name="Output")
+    derived_out.columns = [
+        # No Expression property -> the column is a pass-through.
+        Column(ref_id="C.out.Region", name="Region", data_type="wstr"),
+        # A structurally invalid SSIS expression -> untranslatable, emitted as NULL.
+        Column(ref_id="C.out.Broken", name="Broken", data_type="i4",
+               properties={"Expression": "[Amount] [Region]"}),
+        # An unmapped SSIS function -> a warning, but still translated.
+        Column(ref_id="C.out.Widget", name="Widget", data_type="i4",
+               properties={"Expression": "WIDGETIZE([Amount])"}),
+    ]
+    derived.inputs = [derived_in]
+    derived.outputs = [derived_out]
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[source, derived],
+        paths=[Path(ref_id="p1", name="p1", start_id="S.out", end_id="C.in")],
+    )
+    return Package(name="DerivedEdgePkg", data_flows=[flow])
+
+
+def test_derived_column_handles_passthrough_untranslatable_and_warning_expressions():
+    result = convert_package(_derived_edge_cases_package())
+    sql = result.sql
+    assert "/* untranslatable SSIS expression: [Amount] [Region] */ NULL" in sql
+    assert "WIDGETIZE([Amount])" in sql
+    assert any("WIDGETIZE" in w for w in result.warnings)
+
+
+def test_data_conversion_with_no_input_is_skipped():
+    convert = Component(ref_id="C", name="Orphan Convert",
+                        kind=ComponentKind.DATA_CONVERSION)
+    convert.inputs = [Port(ref_id="C.in", name="Input")]
+    convert.outputs = [Port(ref_id="C.out", name="Output")]
+    flow = DataFlow(name="DF", ref_id="DF", components=[convert], paths=[])
+    result = convert_package(Package(name="P", data_flows=[flow]))
+    assert "Orphan_Convert" not in result.sql
+
+
+def test_data_conversion_with_an_unresolved_source_emits_null():
+    source, _ = _source()
+    convert = Component(ref_id="C", name="Convert", kind=ComponentKind.DATA_CONVERSION)
+    convert_in = Port(ref_id="C.in", name="Input")
+    convert_in.columns = [Column(name="Amount", upstream_lineage_id="S.out.Amount")]
+    convert_out = Port(ref_id="C.out", name="Output")
+    # An output column whose source resolves to nothing -> NULL.
+    convert_out.columns = [Column(ref_id="C.out.Ghost", name="Ghost", data_type="i4")]
+    convert.inputs = [convert_in]
+    convert.outputs = [convert_out]
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[source, convert],
+        paths=[Path(ref_id="p1", name="p1", start_id="S.out", end_id="C.in")],
+    )
+    sql = convert_package(Package(name="ConvNullPkg", data_flows=[flow])).sql
+    assert "NULL AS [Ghost]" in sql
+
+
+def test_copy_column_with_no_input_is_skipped():
+    copy = Component(ref_id="C", name="Orphan Copy", kind=ComponentKind.COPY_COLUMN)
+    copy.inputs = [Port(ref_id="C.in", name="Input")]
+    copy.outputs = [Port(ref_id="C.out", name="Output")]
+    flow = DataFlow(name="DF", ref_id="DF", components=[copy], paths=[])
+    result = convert_package(Package(name="P", data_flows=[flow]))
+    assert "Orphan_Copy" not in result.sql

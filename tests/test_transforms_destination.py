@@ -142,3 +142,81 @@ def test_destination_without_target_table_emits_placeholder():
     result = convert_package(Package(name="NoTablePkg", data_flows=[flow]))
     assert "[UnknownTarget]" in result.sql
     assert any("no target table" in w for w in result.warnings)
+
+
+# --------------------------------------------------------------------------- #
+# Destination edge cases: no input, an empty column mapping, and a flat-file
+# destination fed by a Sort (the ORDER BY is carried onto the SELECT).
+# --------------------------------------------------------------------------- #
+def test_destination_with_no_input_is_skipped():
+    destination = Component(
+        ref_id="D", name="Orphan Dst", kind=ComponentKind.OLEDB_DESTINATION,
+        properties={"OpenRowset": "dbo.Target"},
+    )
+    destination.inputs = [Port(ref_id="D.in", name="Input")]
+    flow = DataFlow(name="DF", ref_id="DF", components=[destination], paths=[])
+    result = convert_package(Package(name="P", data_flows=[flow]))
+    assert "INSERT INTO" not in result.sql
+
+
+def test_destination_with_no_column_mapping_maps_every_upstream_column():
+    source = Component(
+        ref_id="S", name="Src", kind=ComponentKind.OLEDB_SOURCE,
+        properties={"SqlCommand": "SELECT Id FROM dbo.T"},
+    )
+    source_out = Port(ref_id="S.out", name="Output")
+    source_out.columns = [Column(ref_id="S.out.Id", name="Id", data_type="i4")]
+    source.outputs = [source_out]
+
+    destination = Component(
+        ref_id="D", name="Dst", kind=ComponentKind.OLEDB_DESTINATION,
+        properties={"OpenRowset": "dbo.Target"},
+    )
+    # The input port carries no columns -> no mapping; fall back to upstream columns.
+    destination.inputs = [Port(ref_id="D.in", name="Input")]
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[source, destination],
+        paths=[Path(ref_id="p", name="p", start_id="S.out", end_id="D.in")],
+    )
+    result = convert_package(Package(name="NoMapPkg", data_flows=[flow]))
+    assert "INSERT INTO [dbo].[Target]" in result.sql
+    assert "[Id]" in result.sql
+    assert any("no column mapping" in w for w in result.warnings)
+
+
+def test_flat_file_destination_carries_a_sort_order_by():
+    source = Component(
+        ref_id="S", name="Src", kind=ComponentKind.OLEDB_SOURCE,
+        properties={"SqlCommand": "SELECT Id FROM dbo.T"},
+    )
+    source_out = Port(ref_id="S.out", name="Output")
+    source_out.columns = [
+        Column(ref_id="S.out.Id", name="Id", data_type="i4", lineage_id="S.out.Id"),
+    ]
+    source.outputs = [source_out]
+
+    sort = Component(ref_id="So", name="Order", kind=ComponentKind.SORT)
+    sort_in = Port(ref_id="So.in", name="Input")
+    sort_in.columns = [
+        Column(name="Id", upstream_lineage_id="S.out.Id",
+               properties={"NewSortKeyPosition": "1"}),
+    ]
+    sort.inputs = [sort_in]
+    sort.outputs = [Port(ref_id="So.out", name="Sort Output")]
+
+    destination = Component(
+        ref_id="D", name="CsvOut", kind=ComponentKind.FLATFILE_DESTINATION,
+    )
+    destination_in = Port(ref_id="D.in", name="Input")
+    destination_in.columns = [Column(name="Id")]
+    destination.inputs = [destination_in]
+
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[source, sort, destination],
+        paths=[
+            Path(ref_id="p1", name="p1", start_id="S.out", end_id="So.in"),
+            Path(ref_id="p2", name="p2", start_id="So.out", end_id="D.in"),
+        ],
+    )
+    sql = convert_package(Package(name="FlatSortPkg", data_flows=[flow])).sql
+    assert "ORDER BY [Id] ASC" in sql
