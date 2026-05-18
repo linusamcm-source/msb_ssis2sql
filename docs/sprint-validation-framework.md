@@ -106,7 +106,7 @@ Two execution contexts, one shared input, one shared comparator.
 
 | Layer                  | Runs                                      | Needs                                        | Catches                                                                         |
 | ---------------------- | ----------------------------------------- | -------------------------------------------- | ------------------------------------------------------------------------------- |
-| **Static**       | every CI run, instant                     | nothing (uses repomix snapshot +`sqlglot`) | malformed SQL, broken column lineage, corpus that no longer covers a transpiler |
+| **Static**       | every CI run, instant                     | the `validation` extra (`ast` of live source + `sqlglot`) | malformed SQL, broken column lineage, corpus that no longer covers a transpiler |
 | **Execution**    | every CI run with DB access               | reachable remote SQL Server                  | SQL that does not run; runtime errors; wrong row counts                         |
 | **Differential** | CI runs where golden fixtures are present | SQL Server + committed golden                | the real prize — data the converted SQL produces ≠ data SSIS produced         |
 
@@ -130,7 +130,7 @@ validation/
   sql_runner.py          # ssis2sql convert -> execute .sql -> read back dest
   comparison.py          # the diff engine: multiset/ordered, per-column policy
   ledger.py              # parse ledger.yaml, expected-divergence rules
-  static_checks.py       # sqlglot parse-validity + repomix completeness matrix
+  static_checks.py       # sqlglot parse-validity + completeness matrix
   reporting.py           # ComparisonResult -> human-readable diff report
   capture/
     capture.py           # Windows golden-capture harness (run by operator)
@@ -184,16 +184,29 @@ the same SQL Server.
 
 ### Coverage requirement
 
-Every `ComponentKind` that has a registered transpiler **must be exercised by at
-least one corpus package** (Story 7 enforces this via the repomix snapshot).
-Registered transpilers today (verified from `.repomix-output.xml`):
+All 24 `ComponentKind`s are bound to a `@register`-ed transpiler, but they do
+not all belong in an ODBC data-validation corpus. Coverage is therefore scoped
+to **dedicated, behaviour-preserving transpilers** — the kinds that emit
+faithful SQL. The following are **excluded** from the must-be-covered set:
 
-`OLEDB_SOURCE`/`FLATFILE_SOURCE` (Source), `OLEDB_DESTINATION`/`FLATFILE_DESTINATION`
-(Destination), `DERIVED_COLUMN`, `DATA_CONVERSION`, `COPY_COLUMN`,
+- `FLATFILE_SOURCE` / `FLATFILE_DESTINATION` — registered, but they share their
+  transpiler with `OLEDB_SOURCE` / `OLEDB_DESTINATION` and are flat-file
+  endpoints; the corpus is ODBC-only by the locked decision, so they cannot
+  appear in it. Exercising the OLEDB kinds covers that shared transpiler.
+- the `PassThroughFallback` kinds — `OLEDB_COMMAND`, `PIVOT`, `UNPIVOT`,
+  `SCRIPT`, `SCD`, `CHARACTER_MAP`, `UNKNOWN` — all registered to
+  `PassThroughFallbackTranspiler`, which emits a pass-through plus a warning,
+  not faithful SQL. A package needing them is a ledger `xfail`, not a corpus
+  member (see "Seed-data edge cases").
+
+The **must-be-covered set** is therefore exactly these 15 kinds: `OLEDB_SOURCE`,
+`OLEDB_DESTINATION`, `DERIVED_COLUMN`, `DATA_CONVERSION`, `COPY_COLUMN`,
 `CONDITIONAL_SPLIT`, `LOOKUP`, `AGGREGATE`, `SORT`, `UNION_ALL`, `MERGE`,
-`MERGE_JOIN`, `MULTICAST`, `ROW_COUNT`, `AUDIT`, plus the
-`PassThroughFallback` kinds (`OLEDB_COMMAND`, `PIVOT`, `UNPIVOT`, `SCRIPT`,
-`SCD`, `CHARACTER_MAP`).
+`MERGE_JOIN`, `MULTICAST`, `ROW_COUNT`, `AUDIT`. Every one **must be exercised
+by at least one corpus package** (Story 7 enforces this by parsing the live
+`ssis2sql/` source). Story 7 derives the exclusions mechanically: a `ComponentKind` is
+exempt if its registered transpiler class is `PassThroughFallbackTranspiler`,
+or if it is a `FLATFILE_*` kind.
 
 ### Proposed corpus packages (Story 6 detail)
 
@@ -422,8 +435,8 @@ Stories 4, 6, 7 are off the `1→2→3` spine and run concurrently with it.
 - All `validation/` framework code, with unit tests (Stories 1–4, 7).
 - SQL Server connection fixture working against the remote server.
 - The ODBC corpus: packages, schemas, seeds, ledgers (Story 6).
-- The capture harness code + `RUNBOOK.md` (Story 5) — *written and lint/type
-  clean, but not executed*.
+- The capture harness code + `RUNBOOK.md` (Story 5) — *written, type-hinted,
+  import-clean and `py_compile`-clean, but not executed*.
 - The end-to-end test (Story 8), which **runs** the provision→convert→execute→
   compare path and **skips the differential assertion** with a clear message
   while `golden/` is empty.
@@ -486,9 +499,15 @@ wire `just` recipes, define config.
       "python-dotenv>=1.0",
   ]
   ```
-- Register a pytest marker so the slow suite is opt-in. Add to
-  `[tool.pytest.ini_options]`: `markers = ["validation: differential validation (needs SQL Server)"]`. Do **not** add `validation/` to `testpaths` — keep
-  `just test` fast.
+- Register a pytest marker so the slow suite is opt-in. The repo's
+  `pyproject.toml` **already has** a `[tool.pytest.ini_options]` table with
+  `testpaths = ["tests"]` and `addopts = "-q"`. **APPEND** a `markers` key to
+  that existing table — do **not** rewrite the table, and do **not** drop
+  `testpaths` or `addopts`. `just test` is bare `pytest`; it relies on
+  `testpaths = ["tests"]` to stay fast — lose it and pytest auto-discovers
+  `validation/`, breaking the "not slowed" criterion below. Add exactly:
+  `markers = ["validation: differential validation (needs SQL Server)"]`. Do
+  **not** add `validation/` to `testpaths`.
 - `validation/config.py`: a frozen dataclass holding the ODBC driver name
   (`ODBC Driver 18 for SQL Server`) and the remote-server connection parameters
   — address (`MSSQL_SERVER_ADDRESS`), port (`MSSQL_SERVER_PORT`), SA username
@@ -505,8 +524,29 @@ wire `just` recipes, define config.
 - `justfile` recipes:
   - `validate` → `.venv/bin/python -m pytest validation/ -m validation`
   - `validate-unit` → `.venv/bin/python -m pytest validation/tests`
+  - `validate-cov` → `.venv/bin/python -m pytest validation/tests --cov=validation --cov-report=term-missing --cov-report=json` — the `/team-sprint` 80% coverage gate runs this; it must measure the `validation` package.
   - `validate-static` → `.venv/bin/python -m pytest validation/test_static.py`
   - extend `install` (or add `install-validation`) to install `.[validation]`.
+- **Coverage scoping.** `pyproject.toml` currently has `[tool.coverage.run]`
+  with `source = ["ssis2sql"]` — that would force *every* coverage run
+  (including `validate-cov`) to measure `ssis2sql/` and report ≈0% for
+  `validation/`, so the 80% gate would read the wrong package. Story 0 must
+  **remove the `source` key** and instead set an `omit` list, so the
+  `validation` coverage figure is not diluted by files the unit suite never
+  runs:
+  ```toml
+  [tool.coverage.run]
+  omit = ["validation/tests/*", "validation/test_*.py", "validation/conftest.py"]
+  ```
+  Rationale: `validate-cov` runs only `validation/tests/`, but `--cov=validation`
+  measures the whole package — without `omit`, the un-exercised test entry
+  points `validation/test_static.py` and `validation/test_validation.py` report
+  ≈0% and drag the aggregate below the hard 80% gate. The `omit` list excludes
+  test files and `conftest.py` (test infrastructure, not source);
+  `validation/capture/capture.py` is source and stays measured (Story 5
+  unit-tests it). Keep `[tool.coverage.report]`. Each recipe passes its own
+  `--cov=<pkg>` flag — the existing `cov` recipe already passes `--cov=ssis2sql`,
+  so it is unaffected; `validate-cov` passes `--cov=validation`.
 - Document the **system prerequisite** (not pip-installable) in a comment and in
   the README later: Microsoft ODBC Driver 18 — macOS
   `brew install msodbcsql18`; plus `unixodbc`.
@@ -519,6 +559,10 @@ wire `just` recipes, define config.
   `MSSQL_SERVER_PORT`, `MSSQL_SA_USERNAME`, `MSSQL_SA_PASSWORD` from the
   environment (loaded from `.env`).
 - `just test` (existing unit suite) still passes and is not slowed.
+- `pyproject.toml` still contains `testpaths = ["tests"]` and `addopts = "-q"`
+  in `[tool.pytest.ini_options]`; bare `pytest` collects only `tests/`.
+- `just validate-cov` reports coverage for `validation/*` modules (not
+  `ssis2sql/*`); `[tool.coverage.run]` no longer pins `source` to `ssis2sql`.
 
 **Definition of done.** Skeleton committed; deps resolve; recipes present;
 existing suite green.
@@ -730,7 +774,10 @@ type/lint-clean on macOS; executed later on Windows.
 
 **Acceptance criteria.**
 
-- `capture.py --help` runs on macOS; module imports clean; `mypy`/lint clean.
+- `capture.py --help` runs on macOS; the module imports without error and is
+  `python -m py_compile`-clean; all code is type-hinted per § 10. ("type/lint
+  clean" here means hinted, importable, and byte-compilable — the repo has no
+  mypy/ruff toolchain, so it is not a `mypy` run.)
 - Manifest construction unit-tested (correct `seed_checksum`, row counts, types).
 - Parquet export round-trips a sample DataFrame.
 - `RUNBOOK.md` is complete and self-contained.
@@ -769,8 +816,8 @@ and ledgers, covering every transpiler and the expression language.
 
 **Acceptance criteria.**
 
-- Every transpiler-backed `ComponentKind` is exercised by ≥ 1 package
-  (Story 7 enforces this mechanically).
+- Every `ComponentKind` in the § 5 must-be-covered set is exercised by ≥ 1
+  package (Story 7 enforces this mechanically).
 - Every package parses and transpiles without an unhandled exception.
 - Every package has `schema.sql`, ≥ 1 `seed/src_*.csv`, and a `ledger.yaml`
   whose columns match the destination DDL.
@@ -784,7 +831,7 @@ schema-consistent; coverage matrix (Story 7) green.
 ### Story 7 — Static structural layer
 
 **Scope.** Execution-free validation: SQL parse-validity, column lineage, and a
-repomix-driven completeness matrix.
+source-derived completeness matrix.
 
 **Files owned.** `validation/static_checks.py`, `validation/test_static.py`,
 `validation/tests/test_static_checks.py`.
@@ -794,32 +841,55 @@ repomix-driven completeness matrix.
 - **Parse-validity.** For each corpus package, `ssis2sql convert` then
   `sqlglot.parse(sql, dialect="tsql")`. A parse error = `FAIL` with the
   offending statement. Cheap, instant, catches gross regressions with no database.
-- **Column lineage.** Use `sqlglot` (`optimize` / `lineage`) to confirm every
-  column in each final `INSERT ... SELECT` resolves to a CTE column or a source
-  column — i.e. the converted SQL invents no columns and drops none the
-  destination mapping expects.
-- **Completeness matrix — this is the repomix step.** Refresh the repomix
-  snapshot (`.repomix-output.xml`), then parse it to assert structural invariants
-  *without* importing the package:
-  1. every `ComponentKind` in `ssis2sql/model.py` either has a
-     `@register(...)` transpiler **or** is in an explicit
-     `NO_TRANSPILER` allowlist;
-  2. every transpiler-backed `ComponentKind` is exercised by ≥ 1
-     `validation/corpus/*` package;
-  3. the `validation/` package has the modules § 4 prescribes.
-     This makes "the corpus keeps pace with the transpiler surface" a *test* — add a
-     transpiler without a corpus package and CI goes red. Reuse the `use-repo-code`
-     skill / repomix output as the structural source of truth.
-- A stale repomix snapshot must be detected (compare mtime against
-  `ssis2sql/`); refresh or fail with instructions rather than validating
-  against stale structure.
+- **Column lineage.** For each corpus package, build a `schema` mapping
+  `{table: {column: type}}` by parsing the `CREATE TABLE` statements in that
+  package's `schema.sql` (the same DDL the comparison engine treats as the
+  type authority). the source CTEs select from base tables by name (`FROM dbo.<src>`, or a
+  wrapped `SqlCommand` subquery), so `sqlglot` needs that `schema` to resolve
+  the base-table columns through the CTE chain — without it `optimize` /
+  `qualify` under-resolve those columns and the lineage check produces false
+  passes from the very layer meant to catch invented/dropped columns. Pass the
+  `schema` in, then confirm every column in each final `INSERT ... SELECT`
+  resolves to a schema-known source column or an upstream CTE column, **and**
+  that the `INSERT`'s projected column set matches the destination `dst_*`
+  `CREATE TABLE` column set from `schema.sql` — i.e. the converted SQL invents
+  no columns and drops none the destination mapping expects. A column that
+  fails to resolve, or a projection that does not match the `dst_*` DDL, is a
+  `FAIL`.
+- **Completeness matrix.** Assert structural invariants by parsing the **live
+  `ssis2sql/` source — not** a repomix snapshot. `.repomix-output.xml` is a
+  Claude-Code session artefact: gitignored, absent from a fresh CI checkout,
+  produced by the Node `repomix` tool (not a repo dependency), and — being
+  Tree-sitter-compressed — it elides multi-line `@register(...)` decorators and
+  even picks up the fake `ComponentKind.MY_COMPONENT` from the README. The
+  matrix instead:
+  1. builds the registered-transpiler map by importing `ssis2sql.transforms`
+     and reading `ssis2sql.transforms.registry._REGISTRY`
+     (`dict[ComponentKind, type]`, at `registry.py:58`) — or, if an import-free
+     check is preferred, by `ast`-parsing `ssis2sql/transforms/*.py` (handles
+     multi-line decorators; scope the scan to `ssis2sql/transforms/` so test
+     fakes and README snippets are excluded);
+  2. asserts every `ComponentKind` in `ssis2sql/model.py` either appears in
+     `_REGISTRY` **or** is in an explicit `NO_TRANSPILER` allowlist;
+  3. asserts every `ComponentKind` in the § 5 must-be-covered set — an entry
+     in `_REGISTRY` whose transpiler class is **not**
+     `PassThroughFallbackTranspiler` and which is not a `FLATFILE_*` kind — is
+     exercised by ≥ 1 `validation/corpus/*` package. The corpus→kind mapping
+     parses each `validation/corpus/*/package.dtsx` and resolves every
+     component's `componentClassID` via `ssis2sql.component_types.resolve()`
+     (or `ssis2sql.parser`); importing `ssis2sql` for this is expected and fine;
+  4. asserts the `validation/` package has the modules § 4 prescribes.
+  This makes "the corpus keeps pace with the transpiler surface" a *test* — add
+  a dedicated transpiler without a corpus package and CI goes red. No repomix,
+  no Node, no snapshot: the check runs in any checkout, including CI.
 
 **Acceptance criteria.**
 
 - Every corpus package's converted SQL parses as T-SQL under `sqlglot`.
-- The lineage check passes for every package (or reports a precise gap).
-- The completeness matrix fails loudly if a `ComponentKind` has a transpiler but
-  no corpus coverage.
+- The lineage check is given the `schema.sql`-derived table schemas, and passes
+  for every package (or reports a precise unresolved-column gap).
+- The completeness matrix fails loudly if a must-be-covered `ComponentKind`
+  (§ 5) has a dedicated transpiler but no corpus coverage.
 - The static suite runs with **no database** and in a few seconds.
 
 **Definition of done.** Static checks committed; `just validate-static` green;
@@ -831,9 +901,10 @@ completeness matrix enforced.
 
 **Scope.** Tie the layers into one parametrized differential test, and wire CI.
 
-**Files owned.** `validation/test_validation.py`, a CI workflow file
-(`.github/workflows/validation.yml` if the repo uses GitHub Actions — confirm
-first), README "Validation" section.
+**Files owned.** `validation/test_validation.py`,
+`.github/workflows/validation.yml` (the repo has **no** `.github/` directory
+today — Story 8 creates it; this is the repo's first GitHub Actions workflow),
+README "Validation" section.
 
 **Developer notes.**
 
@@ -851,11 +922,17 @@ first), README "Validation" section.
   7. assert on `verdict`: `PASS`/`XFAIL` pass the test; `FAIL`/`XPASS` fail it
      with the rendered diff report as the message.
 - The test must also **skip cleanly** when the SQL Server is unreachable.
-- CI: run `just validate-static` and `just validate-unit` on every push (fast,
-  no database needed for the static layer — or gate execution bits behind a
-  server-reachable check). Run the full `just validate` on a runner with
-  network access to the SQL Server (connection parameters supplied as CI
-  secrets); until golden fixtures exist it is all skips — green and honest.
+- CI: the repo currently has **no `.github/` directory** — Story 8 creates
+  `.github/workflows/validation.yml` as the repo's first GitHub Actions
+  workflow. The job must run `just install-validation` before any
+  `just validate-*` recipe — the static layer imports `sqlglot` from the
+  `validation` extra; without the install, collection fails with
+  `ModuleNotFoundError`. Run `just validate-static` and `just validate-unit` on
+  every push (fast, no database needed for the static layer). Run the full
+  `just validate` on a runner with network access to the SQL Server (connection
+  parameters supplied as CI secrets); until golden fixtures exist it is all
+  skips — green and honest. The sprint cannot push, so the workflow is verified
+  as valid YAML only — its first real run is post-merge.
 - README: a "Validation framework" section — what it does, `just validate*`
   recipes, the Windows capture dependency, link to `RUNBOOK.md`.
 
@@ -873,7 +950,8 @@ first), README "Validation" section.
 - CI workflow valid; static + unit layers green.
 
 **Definition of done.** End-to-end test committed; skip/integrity/pass/fail paths
-all verified; CI wired; README updated.
+all verified; `.github/workflows/validation.yml` created and YAML-valid
+(runtime-verified post-merge — the sprint does not push); README updated.
 
 ---
 
@@ -944,6 +1022,10 @@ git add validation/corpus/<package_name>/golden && git commit
 - The remote SQL Server connection is configured via a gitignored `.env`
   (`MSSQL_SERVER_ADDRESS`, `MSSQL_SERVER_PORT`, `MSSQL_SA_USERNAME`,
   `MSSQL_SA_PASSWORD`); `.env.example` documents the keys.
+- Story headings use the form `### Story N — <title>` (h3, em-dash, integer
+  id) under `## 11. Stories`. The team-sprint orchestrator for this sprint
+  parses that form — the nine story ids are the integers `0`–`8`. Confirmed
+  compatible at launch; do not renumber or reformat the headings.
 - Story 0 is **blocking** — it creates `pyproject.toml`/`justfile` changes and
   the `validation/` skeleton every other story builds on.
 - Stories 1, 4, 6, 7 fan out in parallel after Story 0; the `1→2→3` spine and
