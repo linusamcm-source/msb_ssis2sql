@@ -1,0 +1,402 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="CustomerSalesETL"
+                DTS:VersionBuild="1">
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[LocalDW]"
+                           DTS:ObjectName="LocalDW"
+                           DTS:CreationName="OLEDB">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+            DTS:ConnectionString="Data Source=localhost;Initial Catalog=SalesDW;Provider=SQLNCLI11;Integrated Security=SSPI;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+
+  <DTS:Variables>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="MinThreshold">
+      <DTS:VariableValue DTS:DataType="3">1000</DTS:VariableValue>
+    </DTS:Variable>
+  </DTS:Variables>
+
+  <DTS:Executables>
+    <!-- A control-flow Execute SQL Task: truncate targets before the load. -->
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecuteSQLTask"
+                    DTS:ObjectName="Truncate Targets">
+      <DTS:ObjectData>
+        <SQLTask:SqlTaskData
+            xmlns:SQLTask="www.microsoft.com/sqlserver/dts/tasks/sqltask"
+            SQLTask:SqlStatementSource="TRUNCATE TABLE dbo.FactSalesEnriched; TRUNCATE TABLE dbo.RegionSummary;" />
+      </DTS:ObjectData>
+    </DTS:Executable>
+
+    <!-- ============================ DATA FLOW 1 ============================ -->
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT Customer Sales"
+                    DTS:refId="Package\DFT Customer Sales">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+
+            <component refId="SalesSrc" name="Sales Orders Source"
+                       componentClassID="Microsoft.OLEDBSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT OrderID, CustomerID, OrderDate, Amount, Region FROM dbo.SalesOrders</property>
+              </properties>
+              <connections>
+                <connection refId="SalesSrc.Connection"
+                            connectionManagerID="Package.ConnectionManagers[LocalDW]"
+                            connectionManagerRefId="Package.ConnectionManagers[LocalDW]"
+                            name="OleDbConnection" />
+              </connections>
+              <outputs>
+                <output refId="SalesSrc.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="SalesSrc.Output.OrderID" name="OrderID" dataType="i4" />
+                    <outputColumn refId="SalesSrc.Output.CustomerID" name="CustomerID" dataType="i4" />
+                    <outputColumn refId="SalesSrc.Output.OrderDate" name="OrderDate" dataType="dbTimeStamp" />
+                    <outputColumn refId="SalesSrc.Output.Amount" name="Amount" dataType="numeric" precision="18" scale="2" />
+                    <outputColumn refId="SalesSrc.Output.Region" name="Region" dataType="wstr" length="50" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <component refId="Enrich" name="Enrich Columns"
+                       componentClassID="Microsoft.DerivedColumn">
+              <inputs>
+                <input refId="Enrich.Input" name="Derived Column Input">
+                  <inputColumns>
+                    <inputColumn refId="Enrich.Input.OrderDate" cachedName="OrderDate"
+                                 lineageId="SalesSrc.Output.OrderDate" usageType="readOnly" />
+                    <inputColumn refId="Enrich.Input.Amount" cachedName="Amount"
+                                 lineageId="SalesSrc.Output.Amount" usageType="readOnly" />
+                    <inputColumn refId="Enrich.Input.Region" cachedName="Region"
+                                 lineageId="SalesSrc.Output.Region" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="Enrich.Output" name="Derived Column Output"
+                        synchronousInputId="Enrich.Input">
+                  <outputColumns>
+                    <outputColumn refId="Enrich.Output.OrderYear" name="OrderYear" dataType="i4">
+                      <properties>
+                        <property name="Expression">DATEPART("yyyy",[OrderDate])</property>
+                        <property name="FriendlyExpression">DATEPART("yyyy",[OrderDate])</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="Enrich.Output.NetAmount" name="NetAmount"
+                                  dataType="numeric" precision="19" scale="4">
+                      <properties>
+                        <property name="Expression">[Amount] - [Amount] * 0.10</property>
+                        <property name="FriendlyExpression">[Amount] - [Amount] * 0.10</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="Enrich.Output.RegionClean" name="RegionClean"
+                                  dataType="wstr" length="50">
+                      <properties>
+                        <property name="Expression">UPPER(TRIM([Region]))</property>
+                        <property name="FriendlyExpression">UPPER(TRIM([Region]))</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <component refId="CustLookup" name="Customer Lookup"
+                       componentClassID="Microsoft.Lookup">
+              <properties>
+                <property name="SqlCommand">SELECT CustomerID, CustomerName, Tier FROM dbo.DimCustomer</property>
+                <property name="NoMatchBehavior">Ignore failure</property>
+              </properties>
+              <inputs>
+                <input refId="CustLookup.Input" name="Lookup Input">
+                  <inputColumns>
+                    <inputColumn refId="CustLookup.Input.CustomerID" cachedName="CustomerID"
+                                 lineageId="SalesSrc.Output.CustomerID" usageType="readOnly">
+                      <properties>
+                        <property name="JoinToReferenceColumn">CustomerID</property>
+                      </properties>
+                    </inputColumn>
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="CustLookup.Match" name="Lookup Match Output"
+                        synchronousInputId="CustLookup.Input">
+                  <outputColumns>
+                    <outputColumn refId="CustLookup.Match.CustomerName" name="CustomerName"
+                                  dataType="wstr" length="100">
+                      <properties>
+                        <property name="CopyFromReferenceColumn">CustomerName</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="CustLookup.Match.Tier" name="Tier"
+                                  dataType="wstr" length="20">
+                      <properties>
+                        <property name="CopyFromReferenceColumn">Tier</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <component refId="Route" name="Route By Value"
+                       componentClassID="Microsoft.ConditionalSplit">
+              <inputs>
+                <input refId="Route.Input" name="Conditional Split Input" />
+              </inputs>
+              <outputs>
+                <output refId="Route.HighValue" name="HighValue"
+                        synchronousInputId="Route.Input" exclusionGroup="1">
+                  <properties>
+                    <property name="EvaluationOrder">0</property>
+                    <property name="Expression">[NetAmount] &gt; @[User::MinThreshold] || [Tier] == "Gold"</property>
+                    <property name="FriendlyExpression">[NetAmount] &gt; @[User::MinThreshold] || [Tier] == "Gold"</property>
+                  </properties>
+                </output>
+                <output refId="Route.LowValue" name="LowValue Default Output"
+                        synchronousInputId="Route.Input" exclusionGroup="1" />
+              </outputs>
+            </component>
+
+            <component refId="TagHigh" name="Tag High Value"
+                       componentClassID="Microsoft.DerivedColumn">
+              <inputs>
+                <input refId="TagHigh.Input" name="Derived Column Input" />
+              </inputs>
+              <outputs>
+                <output refId="TagHigh.Output" name="Derived Column Output"
+                        synchronousInputId="TagHigh.Input">
+                  <outputColumns>
+                    <outputColumn refId="TagHigh.Output.Segment" name="Segment"
+                                  dataType="wstr" length="10">
+                      <properties>
+                        <property name="Expression">"HIGH"</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <component refId="TagLow" name="Tag Low Value"
+                       componentClassID="Microsoft.DerivedColumn">
+              <inputs>
+                <input refId="TagLow.Input" name="Derived Column Input" />
+              </inputs>
+              <outputs>
+                <output refId="TagLow.Output" name="Derived Column Output"
+                        synchronousInputId="TagLow.Input">
+                  <outputColumns>
+                    <outputColumn refId="TagLow.Output.Segment" name="Segment"
+                                  dataType="wstr" length="10">
+                      <properties>
+                        <property name="Expression">"LOW"</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <component refId="Recombine" name="Recombine Branches"
+                       componentClassID="Microsoft.UnionAll">
+              <inputs>
+                <input refId="Recombine.Input1" name="Union All Input 1" />
+                <input refId="Recombine.Input2" name="Union All Input 2" />
+              </inputs>
+              <outputs>
+                <output refId="Recombine.Output" name="Union All Output">
+                  <outputColumns>
+                    <outputColumn refId="Recombine.Output.OrderID" name="OrderID" dataType="i4" />
+                    <outputColumn refId="Recombine.Output.CustomerID" name="CustomerID" dataType="i4" />
+                    <outputColumn refId="Recombine.Output.OrderDate" name="OrderDate" dataType="dbTimeStamp" />
+                    <outputColumn refId="Recombine.Output.Amount" name="Amount" dataType="numeric" precision="18" scale="2" />
+                    <outputColumn refId="Recombine.Output.Region" name="Region" dataType="wstr" length="50" />
+                    <outputColumn refId="Recombine.Output.OrderYear" name="OrderYear" dataType="i4" />
+                    <outputColumn refId="Recombine.Output.NetAmount" name="NetAmount" dataType="numeric" precision="19" scale="4" />
+                    <outputColumn refId="Recombine.Output.RegionClean" name="RegionClean" dataType="wstr" length="50" />
+                    <outputColumn refId="Recombine.Output.CustomerName" name="CustomerName" dataType="wstr" length="100" />
+                    <outputColumn refId="Recombine.Output.Tier" name="Tier" dataType="wstr" length="20" />
+                    <outputColumn refId="Recombine.Output.Segment" name="Segment" dataType="wstr" length="10" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <component refId="SortOut" name="Sort Output"
+                       componentClassID="Microsoft.Sort">
+              <properties>
+                <property name="EliminateDuplicates">false</property>
+              </properties>
+              <inputs>
+                <input refId="SortOut.Input" name="Sort Input">
+                  <inputColumns>
+                    <inputColumn refId="SortOut.Input.RegionClean" cachedName="RegionClean"
+                                 lineageId="Recombine.Output.RegionClean" usageType="readWrite">
+                      <properties>
+                        <property name="NewSortKeyPosition">1</property>
+                      </properties>
+                    </inputColumn>
+                    <inputColumn refId="SortOut.Input.NetAmount" cachedName="NetAmount"
+                                 lineageId="Recombine.Output.NetAmount" usageType="readWrite">
+                      <properties>
+                        <property name="NewSortKeyPosition">-2</property>
+                      </properties>
+                    </inputColumn>
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="SortOut.Output" name="Sort Output" />
+              </outputs>
+            </component>
+
+            <component refId="LoadTarget" name="Load Fact Table"
+                       componentClassID="Microsoft.OLEDBDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">[dbo].[FactSalesEnriched]</property>
+              </properties>
+              <connections>
+                <connection refId="LoadTarget.Connection"
+                            connectionManagerID="Package.ConnectionManagers[LocalDW]"
+                            connectionManagerRefId="Package.ConnectionManagers[LocalDW]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="LoadTarget.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="LoadTarget.Input.OrderID" cachedName="OrderID" usageType="readOnly" />
+                    <inputColumn refId="LoadTarget.Input.CustomerID" cachedName="CustomerID" usageType="readOnly" />
+                    <inputColumn refId="LoadTarget.Input.OrderDate" cachedName="OrderDate" usageType="readOnly" />
+                    <inputColumn refId="LoadTarget.Input.Amount" cachedName="Amount" usageType="readOnly" />
+                    <inputColumn refId="LoadTarget.Input.Region" cachedName="Region" usageType="readOnly" />
+                    <inputColumn refId="LoadTarget.Input.OrderYear" cachedName="OrderYear" usageType="readOnly" />
+                    <inputColumn refId="LoadTarget.Input.NetAmount" cachedName="NetAmount" usageType="readOnly" />
+                    <inputColumn refId="LoadTarget.Input.RegionClean" cachedName="RegionClean" usageType="readOnly" />
+                    <inputColumn refId="LoadTarget.Input.CustomerName" cachedName="CustomerName" usageType="readOnly" />
+                    <inputColumn refId="LoadTarget.Input.Tier" cachedName="Tier" usageType="readOnly" />
+                    <inputColumn refId="LoadTarget.Input.Segment" cachedName="Segment" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+          </components>
+          <paths>
+            <path refId="p1" name="Source to Enrich" startId="SalesSrc.Output" endId="Enrich.Input" />
+            <path refId="p2" name="Enrich to Lookup" startId="Enrich.Output" endId="CustLookup.Input" />
+            <path refId="p3" name="Lookup to Route" startId="CustLookup.Match" endId="Route.Input" />
+            <path refId="p4" name="High branch" startId="Route.HighValue" endId="TagHigh.Input" />
+            <path refId="p5" name="Low branch" startId="Route.LowValue" endId="TagLow.Input" />
+            <path refId="p6" name="High to Union" startId="TagHigh.Output" endId="Recombine.Input1" />
+            <path refId="p7" name="Low to Union" startId="TagLow.Output" endId="Recombine.Input2" />
+            <path refId="p8" name="Union to Sort" startId="Recombine.Output" endId="SortOut.Input" />
+            <path refId="p9" name="Sort to Load" startId="SortOut.Output" endId="LoadTarget.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+
+    <!-- ============================ DATA FLOW 2 ============================ -->
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT Regional Summary"
+                    DTS:refId="Package\DFT Regional Summary">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+
+            <component refId="SummarySrc" name="Summary Source"
+                       componentClassID="Microsoft.OLEDBSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT Region, Amount, OrderID FROM dbo.SalesOrders</property>
+              </properties>
+              <outputs>
+                <output refId="SummarySrc.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="SummarySrc.Output.Region" lineageId="201"
+                                  name="Region" dataType="wstr" length="50" />
+                    <outputColumn refId="SummarySrc.Output.Amount" lineageId="202"
+                                  name="Amount" dataType="numeric" precision="18" scale="2" />
+                    <outputColumn refId="SummarySrc.Output.OrderID" lineageId="203"
+                                  name="OrderID" dataType="i4" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <component refId="Aggr" name="Aggregate By Region"
+                       componentClassID="Microsoft.Aggregate">
+              <inputs>
+                <input refId="Aggr.Input" name="Aggregate Input">
+                  <inputColumns>
+                    <inputColumn refId="Aggr.Input.Region" cachedName="Region" lineageId="201" />
+                    <inputColumn refId="Aggr.Input.Amount" cachedName="Amount" lineageId="202" />
+                    <inputColumn refId="Aggr.Input.OrderID" cachedName="OrderID" lineageId="203" />
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="Aggr.Output" name="Aggregate Output">
+                  <outputColumns>
+                    <outputColumn refId="Aggr.Output.Region" name="Region"
+                                  dataType="wstr" length="50">
+                      <properties>
+                        <property name="AggregationType">0</property>
+                        <property name="AggregationColumnId">201</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="Aggr.Output.TotalAmount" name="TotalAmount"
+                                  dataType="numeric" precision="38" scale="2">
+                      <properties>
+                        <property name="AggregationType">3</property>
+                        <property name="AggregationColumnId">202</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="Aggr.Output.OrderCount" name="OrderCount" dataType="i4">
+                      <properties>
+                        <property name="AggregationType">1</property>
+                        <property name="AggregationColumnId">203</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <component refId="LoadSummary" name="Load Region Summary"
+                       componentClassID="Microsoft.OLEDBDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">dbo.RegionSummary</property>
+              </properties>
+              <inputs>
+                <input refId="LoadSummary.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="LoadSummary.Input.Region" cachedName="Region" usageType="readOnly" />
+                    <inputColumn refId="LoadSummary.Input.TotalAmount" cachedName="TotalAmount" usageType="readOnly" />
+                    <inputColumn refId="LoadSummary.Input.OrderCount" cachedName="OrderCount" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+          </components>
+          <paths>
+            <path refId="s1" name="Source to Aggregate" startId="SummarySrc.Output" endId="Aggr.Input" />
+            <path refId="s2" name="Aggregate to Load" startId="Aggr.Output" endId="LoadSummary.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+
+  </DTS:Executables>
+</DTS:Executable>

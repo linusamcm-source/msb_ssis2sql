@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ssis2sql"
+version = "0.1.0"
+description = "Convert SSIS data-flow transformations into consolidated, behaviour-equivalent T-SQL."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Linus McManamey" }]
+keywords = ["ssis", "dtsx", "etl", "t-sql", "sql-server", "transpiler"]
+dependencies = ["loguru>=0.7"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+ssis2sql = "ssis2sql.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["ssis2sql*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

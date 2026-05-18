@@ -1,0 +1,12 @@
+.repomix-output.xml
+.claude/repomix/
+
+# python / ssis2sql
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+generated_scripts/
