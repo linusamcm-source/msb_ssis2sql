@@ -354,3 +354,51 @@ def test_each_sink_with_block_excludes_the_other_branch():
     low = next(c for c in chunks if "INSERT INTO [dbo].[LowTbl]" in c)
     assert "[Route_High] AS (" in high and "[Route_Low] AS (" not in high
     assert "[Route_Low] AS (" in low and "[Route_High] AS (" not in low
+
+
+# --------------------------------------------------------------------------- #
+# ConversionResult, empty packages and the no-destination preview.
+# --------------------------------------------------------------------------- #
+def test_conversion_result_str_returns_the_sql():
+    result = convert_package(_minimal_package())
+    assert str(result) == result.sql
+
+
+def test_package_with_no_data_flows_warns():
+    result = convert_package(Package(name="EmptyPkg", data_flows=[]))
+    assert any("no Data Flow Task" in w for w in result.warnings)
+
+
+def _source_only_flow() -> DataFlow:
+    """A source with output columns but no destination downstream."""
+    source = Component(
+        ref_id="S", name="Lonely Src", class_id="Microsoft.OLEDBSource",
+        kind=ComponentKind.OLEDB_SOURCE,
+        properties={"SqlCommand": "SELECT Id FROM dbo.T"},
+    )
+    source_out = Port(ref_id="S.out", name="Output")
+    source_out.columns = [Column(ref_id="S.out.Id", name="Id", data_type="i4")]
+    source.outputs = [source_out]
+    return DataFlow(name="DF", ref_id="DF", components=[source], paths=[])
+
+
+def test_data_flow_without_a_destination_emits_a_select_preview():
+    result = convert_package(Package(name="PreviewPkg", data_flows=[_source_only_flow()]))
+    assert "SELECT *" in result.sql
+    assert any("no destination" in w for w in result.warnings)
+
+
+def test_header_truncates_a_long_warning_list():
+    # 45 column-less sources each raise one warning; the header caps the list at 40.
+    sources = []
+    for n in range(45):
+        src = Component(
+            ref_id=f"S{n}", name=f"Src{n}", kind=ComponentKind.OLEDB_SOURCE,
+            properties={"SqlCommand": "SELECT 1"},
+        )
+        src.outputs = [Port(ref_id=f"S{n}.out", name="Output")]   # no columns -> warns
+        sources.append(src)
+    flow = DataFlow(name="DF", ref_id="DF", components=sources, paths=[])
+    result = convert_package(Package(name="NoisyPkg", data_flows=[flow]))
+    assert len(result.warnings) > 40
+    assert "more." in result.sql

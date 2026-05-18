@@ -11,6 +11,10 @@ install:
 test:
     .venv/bin/python -m pytest
 
+# Run the test suite with a line-coverage report.
+cov:
+    .venv/bin/python -m pytest --cov=ssis2sql --cov-report=term-missing
+
 # Convert a .dtsx file to T-SQL on stdout. Usage: just convert path/to/pkg.dtsx
 convert FILE:
     .venv/bin/python -m ssis2sql convert {{FILE}}

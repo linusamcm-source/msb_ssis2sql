@@ -8,7 +8,7 @@ the CTEs a destination actually depends on are included in its ``WITH`` block.
 from __future__ import annotations
 
 import datetime as _dt
-import os
+import pathlib
 from dataclasses import dataclass, field
 
 from .dialect import TSqlDialect
@@ -46,7 +46,7 @@ class ConversionResult:
 # public entry points
 # --------------------------------------------------------------------------- #
 @logged
-def convert_file(path: str | os.PathLike, options: ConvertOptions | None = None) -> ConversionResult:
+def convert_file(path: str | pathlib.Path, options: ConvertOptions | None = None) -> ConversionResult:
     """Parse a .dtsx file and convert it in one call."""
     return convert_package(parse_file(path), options)
 

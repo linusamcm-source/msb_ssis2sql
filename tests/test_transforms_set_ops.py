@@ -151,3 +151,187 @@ def test_merge_join_emits_an_inner_join():
 def test_merge_join_left_join_type():
     sql = convert_package(_merge_join_package(join_type="1")).sql
     assert "LEFT OUTER JOIN [Right] AS R" in sql
+
+
+# --------------------------------------------------------------------------- #
+# Degenerate set-operation inputs: missing ports, disconnected inputs,
+# NULL-filled branches, cross joins and explicit output column lists.
+# --------------------------------------------------------------------------- #
+def _source(ref: str, name: str, columns: list[tuple[str, str]]) -> Component:
+    """A minimal OLE DB source exposing the given (name, data_type) columns."""
+    comp = Component(
+        ref_id=ref, name=name, class_id="Microsoft.OLEDBSource",
+        kind=ComponentKind.OLEDB_SOURCE,
+        properties={"SqlCommand": f"SELECT * FROM dbo.{name}"},
+    )
+    port = Port(ref_id=f"{ref}.out", name="Output")
+    port.columns = [
+        Column(ref_id=f"{ref}.out.{cn}", name=cn, data_type=dt) for cn, dt in columns
+    ]
+    comp.outputs = [port]
+    return comp
+
+
+def test_union_with_no_output_port_is_skipped():
+    union = Component(ref_id="U", name="No Output Union", kind=ComponentKind.UNION_ALL)
+    union.inputs = [Port(ref_id="U.in", name="Union All Input 1")]
+    union.outputs = []
+    flow = DataFlow(name="DF", ref_id="DF", components=[union], paths=[])
+    result = convert_package(Package(name="P", data_flows=[flow]))
+    assert any("union" in w and "no output" in w for w in result.warnings)
+
+
+def test_union_with_no_connected_inputs_is_skipped():
+    union = Component(ref_id="U", name="Disconnected Union", kind=ComponentKind.UNION_ALL)
+    union.inputs = [Port(ref_id="U.in", name="Union All Input 1")]
+    out = Port(ref_id="U.out", name="Union All Output 1")
+    out.columns = [Column(name="Id", data_type="i4")]
+    union.outputs = [out]
+    flow = DataFlow(name="DF", ref_id="DF", components=[union], paths=[])
+    result = convert_package(Package(name="P", data_flows=[flow]))
+    assert any("no connected inputs" in w for w in result.warnings)
+
+
+def test_merge_component_is_emitted_as_union_all_with_a_warning():
+    pkg = _union_all_package()
+    pkg.data_flows[0].components[2].kind = ComponentKind.MERGE
+    result = convert_package(pkg)
+    assert "UNION ALL" in result.sql
+    assert any("interleaved sort order" in w for w in result.warnings)
+
+
+def test_union_fills_a_missing_branch_column_with_null():
+    src_a = _source("A", "SrcA", [("Id", "i4"), ("Name", "wstr")])
+    src_b = _source("B", "SrcB", [("Id", "i4")])              # no Name column
+    union = Component(ref_id="U", name="Combine", kind=ComponentKind.UNION_ALL)
+    union.inputs = [Port(ref_id="U.in1", name="Union All Input 1"),
+                    Port(ref_id="U.in2", name="Union All Input 2")]
+    union_out = Port(ref_id="U.out", name="Union All Output 1")
+    union_out.columns = [Column(name="Id", data_type="i4"),
+                         Column(name="Name", data_type="wstr")]
+    union.outputs = [union_out]
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[src_a, src_b, union],
+        paths=[
+            Path(ref_id="p1", name="p1", start_id="A.out", end_id="U.in1"),
+            Path(ref_id="p2", name="p2", start_id="B.out", end_id="U.in2"),
+        ],
+    )
+    result = convert_package(Package(name="NullFillPkg", data_flows=[flow]))
+    assert "NULL AS [Name]" in result.sql
+    assert any("filled with NULL" in w for w in result.warnings)
+
+
+def test_merge_join_with_no_output_port_is_skipped():
+    join = Component(ref_id="J", name="No Output Join", kind=ComponentKind.MERGE_JOIN)
+    join.inputs = [Port(ref_id="J.left", name="Left Input"),
+                   Port(ref_id="J.right", name="Right Input")]
+    join.outputs = []
+    flow = DataFlow(name="DF", ref_id="DF", components=[join], paths=[])
+    result = convert_package(Package(name="P", data_flows=[flow]))
+    assert any("merge join" in w and "no output" in w for w in result.warnings)
+
+
+def test_merge_join_with_only_one_connected_input_is_skipped():
+    left = _source("L", "Left", [("Id", "i4")])
+    join = Component(ref_id="J", name="Half Join", kind=ComponentKind.MERGE_JOIN)
+    join.inputs = [Port(ref_id="J.left", name="Left Input"),
+                   Port(ref_id="J.right", name="Right Input")]
+    join.outputs = [Port(ref_id="J.out", name="Output")]
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[left, join],
+        paths=[Path(ref_id="p1", name="p1", start_id="L.out", end_id="J.left")],
+    )
+    result = convert_package(Package(name="HalfJoinPkg", data_flows=[flow]))
+    assert any("two connected inputs" in w for w in result.warnings)
+
+
+def test_merge_join_without_shared_keys_emits_a_cross_join():
+    left = _source("L", "Left", [("LeftId", "i4")])
+    right = _source("R", "Right", [("RightId", "i4")])
+    join = Component(ref_id="J", name="KeylessJoin", kind=ComponentKind.MERGE_JOIN,
+                     properties={"JoinType": "2"})
+    join.inputs = [Port(ref_id="J.left", name="Left Input"),
+                   Port(ref_id="J.right", name="Right Input")]
+    join.outputs = [Port(ref_id="J.out", name="Output")]
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[left, right, join],
+        paths=[
+            Path(ref_id="p1", name="p1", start_id="L.out", end_id="J.left"),
+            Path(ref_id="p2", name="p2", start_id="R.out", end_id="J.right"),
+        ],
+    )
+    result = convert_package(Package(name="KeylessJoinPkg", data_flows=[flow]))
+    assert "ON 1 = 1" in result.sql
+    assert any("cross join" in w for w in result.warnings)
+
+
+def test_merge_join_inputs_without_left_right_labels_fall_back_to_order():
+    left = _source("L", "First", [("Id", "i4"), ("Name", "wstr")])
+    right = _source("R", "Second", [("Id", "i4"), ("Score", "i4")])
+    join = Component(ref_id="J", name="OrderedJoin", kind=ComponentKind.MERGE_JOIN,
+                     properties={"JoinType": "2"})
+    # Neither input name contains 'left' or 'right'.
+    join.inputs = [Port(ref_id="J.in1", name="Input 1"),
+                   Port(ref_id="J.in2", name="Input 2")]
+    join.outputs = [Port(ref_id="J.out", name="Output")]
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[left, right, join],
+        paths=[
+            Path(ref_id="p1", name="p1", start_id="L.out", end_id="J.in1"),
+            Path(ref_id="p2", name="p2", start_id="R.out", end_id="J.in2"),
+        ],
+    )
+    sql = convert_package(Package(name="OrderedJoinPkg", data_flows=[flow])).sql
+    assert "INNER JOIN [Second] AS R" in sql
+    assert "ON L.[Id] = R.[Id]" in sql
+
+
+def test_merge_join_respects_num_key_columns():
+    left = _source("L", "Left", [("Id", "i4"), ("Code", "wstr")])
+    right = _source("R", "Right", [("Id", "i4"), ("Code", "wstr")])
+    join = Component(ref_id="J", name="LimitedJoin", kind=ComponentKind.MERGE_JOIN,
+                     properties={"JoinType": "2", "NumKeyColumns": "1"})
+    join.inputs = [Port(ref_id="J.left", name="Left Input"),
+                   Port(ref_id="J.right", name="Right Input")]
+    join.outputs = [Port(ref_id="J.out", name="Output")]
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[left, right, join],
+        paths=[
+            Path(ref_id="p1", name="p1", start_id="L.out", end_id="J.left"),
+            Path(ref_id="p2", name="p2", start_id="R.out", end_id="J.right"),
+        ],
+    )
+    sql = convert_package(Package(name="LimitedJoinPkg", data_flows=[flow])).sql
+    # Two shared columns, but NumKeyColumns caps the join to a single key.
+    assert "L.[Id] = R.[Id]" in sql
+    assert "L.[Code] = R.[Code]" not in sql
+
+
+def test_merge_join_with_an_explicit_output_column_list():
+    left = _source("L", "Left", [("Id", "i4"), ("Name", "wstr")])
+    right = _source("R", "Right", [("Id", "i4"), ("Score", "i4")])
+    join = Component(ref_id="J", name="ColJoin", kind=ComponentKind.MERGE_JOIN,
+                     properties={"JoinType": "2"})
+    join.inputs = [Port(ref_id="J.left", name="Left Input"),
+                   Port(ref_id="J.right", name="Right Input")]
+    join_out = Port(ref_id="J.out", name="Output")
+    join_out.columns = [
+        Column(name="Name", data_type="wstr"),       # from the left input
+        Column(name="Score", data_type="i4"),        # from the right input
+        Column(name="Ghost", data_type="i4"),        # matches neither input
+    ]
+    join.outputs = [join_out]
+    flow = DataFlow(
+        name="DF", ref_id="DF", components=[left, right, join],
+        paths=[
+            Path(ref_id="p1", name="p1", start_id="L.out", end_id="J.left"),
+            Path(ref_id="p2", name="p2", start_id="R.out", end_id="J.right"),
+        ],
+    )
+    result = convert_package(Package(name="ColJoinPkg", data_flows=[flow]))
+    sql = result.sql
+    assert "L.[Name] AS [Name]" in sql
+    assert "R.[Score] AS [Score]" in sql
+    assert "NULL AS [Ghost]" in sql
+    assert any("neither input" in w for w in result.warnings)

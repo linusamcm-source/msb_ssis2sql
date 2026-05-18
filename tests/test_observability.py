@@ -3,7 +3,13 @@ from __future__ import annotations
 
 import pytest
 
-from ssis2sql.observability import configure_logging, log_methods, logged, logger
+from ssis2sql.observability import (
+    configure_logging,
+    instrument_module,
+    log_methods,
+    logged,
+    logger,
+)
 
 
 @pytest.fixture
@@ -87,3 +93,76 @@ def test_log_methods_instruments_every_method():
     assert worker.run() == "ok"
     with pytest.raises(ValueError, match="method failure"):
         worker.fail()
+
+
+def test_log_methods_rewraps_classmethods():
+    @log_methods
+    class Registry:
+        @classmethod
+        def label(cls):
+            return cls.__name__
+
+    # The classmethod is still bound to the class after rewrapping.
+    assert Registry.label() == "Registry"
+
+
+def test_log_methods_rewraps_staticmethods():
+    @log_methods
+    class Maths:
+        @staticmethod
+        def double(n):
+            return n * 2
+
+    assert Maths.double(21) == 42
+
+
+def test_instrument_module_wraps_functions_defined_in_the_module():
+    import types
+
+    module = types.ModuleType("fake_observability_target")
+
+    def alpha():
+        return "alpha"
+
+    def beta():
+        return "beta"
+
+    alpha.__module__ = module.__name__
+    beta.__module__ = module.__name__
+    module.alpha = alpha
+    module.beta = beta
+
+    count = instrument_module(module)
+
+    assert count == 2
+    assert module.alpha() == "alpha"
+    assert getattr(module.alpha, "__wrapped_by_logged__", False) is True
+
+
+def test_instrument_module_skips_imported_private_and_already_wrapped():
+    import types
+
+    module = types.ModuleType("fake_observability_target_2")
+
+    def local_fn():
+        return 1
+
+    def imported_fn():
+        return 2
+
+    def _private_fn():
+        return 3
+
+    local_fn.__module__ = module.__name__
+    imported_fn.__module__ = "some.other.module"   # not defined here -> skipped
+    _private_fn.__module__ = module.__name__
+    module.local_fn = local_fn
+    module.imported_fn = imported_fn
+    module._private_fn = _private_fn
+
+    # include_private=False also drops the underscore-prefixed function.
+    count = instrument_module(module, include_private=False)
+
+    assert count == 1
+    # A second pass wraps nothing: every eligible function is already wrapped.
+    assert instrument_module(module, include_private=False) == 0

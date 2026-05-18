@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import pathlib
 import sys
 
 from .errors import Ssis2SqlError
@@ -50,12 +51,12 @@ def _cmd_convert(args) -> int:
         procedure_name=args.procedure or "usp_Migrated_Package",
         include_header=not args.no_header,
     )
-    result = convert_package(parse_file(args.dtsx), options)
+    result = convert_package(parse_file(pathlib.Path(args.dtsx)), options)
 
     if args.output:
-        with open(args.output, "w", encoding="utf-8") as handle:
-            handle.write(result.sql)
-        print(f"ssis2sql: wrote {args.output}", file=sys.stderr)
+        output_path = pathlib.Path(args.output)
+        output_path.write_text(result.sql, encoding="utf-8")
+        print(f"ssis2sql: wrote {output_path}", file=sys.stderr)
     else:
         sys.stdout.write(result.sql)
 
@@ -67,7 +68,7 @@ def _cmd_convert(args) -> int:
 
 
 def _cmd_inspect(args) -> int:
-    package = parse_file(args.dtsx)
+    package = parse_file(pathlib.Path(args.dtsx))
     print(f"Package: {package.name}")
     print(f"  source file        : {package.source_path}")
     print(f"  connection managers: {len(package.connection_managers)}")

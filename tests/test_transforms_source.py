@@ -130,3 +130,43 @@ def test_source_with_no_output_columns_warns_and_skips():
     flow = DataFlow(name="DF", ref_id="DF", components=[source], paths=[])
     result = convert_package(Package(name="EmptySrcPkg", data_flows=[flow]))
     assert any("declares no output columns" in w for w in result.warnings)
+
+
+# --------------------------------------------------------------------------- #
+# Source edge cases: no output port, a query held in a variable, and a
+# source with neither a SQL command nor a table name.
+# --------------------------------------------------------------------------- #
+def test_source_with_no_output_port_is_skipped():
+    source = Component(
+        ref_id="S", name="NoPortSrc", kind=ComponentKind.OLEDB_SOURCE,
+        properties={"SqlCommand": "SELECT 1"},
+    )
+    source.outputs = []
+    flow = DataFlow(name="DF", ref_id="DF", components=[source], paths=[])
+    result = convert_package(Package(name="NoPortPkg", data_flows=[flow]))
+    assert any("exposes no output" in w for w in result.warnings)
+
+
+def test_source_from_a_sql_command_variable_emits_a_placeholder():
+    source = Component(
+        ref_id="S", name="VarSrc", kind=ComponentKind.OLEDB_SOURCE,
+        properties={"SqlCommandVariable": "User::OrderQuery"},
+    )
+    source_out = Port(ref_id="S.out", name="Output")
+    source_out.columns = [Column(ref_id="S.out.Id", name="Id", data_type="i4")]
+    source.outputs = [source_out]
+    flow = DataFlow(name="DF", ref_id="DF", components=[source], paths=[])
+    result = convert_package(Package(name="VarSrcPkg", data_flows=[flow]))
+    assert "query from variable" in result.sql
+    assert any("takes its query from variable" in w for w in result.warnings)
+
+
+def test_source_with_no_command_and_no_table_emits_a_placeholder():
+    source = Component(ref_id="S", name="BlankSrc", kind=ComponentKind.OLEDB_SOURCE)
+    source_out = Port(ref_id="S.out", name="Output")
+    source_out.columns = [Column(ref_id="S.out.Id", name="Id", data_type="i4")]
+    source.outputs = [source_out]
+    flow = DataFlow(name="DF", ref_id="DF", components=[source], paths=[])
+    result = convert_package(Package(name="BlankSrcPkg", data_flows=[flow]))
+    assert "unresolved source" in result.sql
+    assert any("no SQL command and no table name" in w for w in result.warnings)

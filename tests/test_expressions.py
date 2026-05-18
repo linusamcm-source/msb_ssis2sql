@@ -166,3 +166,24 @@ def test_unterminated_string_raises():
 def test_trailing_token_raises():
     with pytest.raises(ExpressionError):
         translate_expression("[A] [B]")
+
+
+# --------------------------------------------------------------------------- #
+# parser corners: bare columns, grouping parentheses, malformed input
+# --------------------------------------------------------------------------- #
+def test_bare_unbracketed_identifier_is_a_column_reference():
+    assert expr("Amount") == "[Amount]"
+
+
+def test_parentheses_group_a_subexpression():
+    assert expr("([A] + [B]) * [C]") == "(([A] + [B]) * [C])"
+
+
+def test_unexpected_token_raises():
+    with pytest.raises(ExpressionError):
+        translate_expression(")")
+
+
+def test_missing_closing_paren_after_a_cast_raises():
+    with pytest.raises(ExpressionError):
+        translate_expression("(DT_I4 [A]")

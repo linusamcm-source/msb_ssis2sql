@@ -14,7 +14,7 @@ keywords = ["ssis", "dtsx", "etl", "t-sql", "sql-server", "transpiler"]
 dependencies = ["loguru>=0.7"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
 
 [project.scripts]
 ssis2sql = "ssis2sql.cli:main"

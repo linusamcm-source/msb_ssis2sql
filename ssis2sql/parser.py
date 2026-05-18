@@ -16,7 +16,7 @@ the modern form to the legacy form, so one parser serves both.
 """
 from __future__ import annotations
 
-import os
+import pathlib
 import xml.etree.ElementTree as ET
 
 from .component_types import resolve as resolve_kind
@@ -96,8 +96,9 @@ def _child(elem: ET.Element | None, name: str) -> ET.Element | None:
 # public entry points
 # --------------------------------------------------------------------------- #
 @logged
-def parse_file(path: str | os.PathLike) -> Package:
+def parse_file(path: str | pathlib.Path) -> Package:
     """Parse a .dtsx file from disk."""
+    path = pathlib.Path(path)
     try:
         tree = ET.parse(path)
     except ET.ParseError as exc:

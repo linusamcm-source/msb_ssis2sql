@@ -256,3 +256,94 @@ def test_unknown_unary_operator_raises():
     bad = ast.Unary("@", ast.Literal("1", "int"))
     with pytest.raises(ExpressionError, match="unknown unary operator"):
         Translator().translate(bad)
+
+
+# --------------------------------------------------------------------------- #
+# variable references
+# --------------------------------------------------------------------------- #
+def test_variable_ref_without_a_resolver_falls_back_to_at_name():
+    # With no variable_resolver supplied, a VariableRef renders as @<name>.
+    assert value("@[User::Threshold]") == "@Threshold"
+
+
+def test_variable_ref_uses_the_supplied_resolver():
+    tr = Translator(variable_resolver=lambda ns, name: f"@{ns}__{name}")
+    assert tr.translate(parse_expression("@[User::Threshold]")) == "@User__Threshold"
+
+
+# --------------------------------------------------------------------------- #
+# function handlers the bundled example never exercises
+# --------------------------------------------------------------------------- #
+def test_codepoint_maps_to_unicode():
+    assert value("CODEPOINT([Ch])") == "UNICODE([Ch])"
+
+
+def test_ln_maps_to_natural_log():
+    assert value("LN([X])") == "LOG([X])"
+
+
+def test_log_maps_to_base_ten_log():
+    assert value("LOG([X])") == "LOG10([X])"
+
+
+def test_datediff_maps_the_datepart_keyword():
+    assert value('DATEDIFF("d", [Start], [End])') == "DATEDIFF(day, [Start], [End])"
+
+
+def test_findstring_first_occurrence_is_a_plain_charindex():
+    tr = Translator()
+    sql = tr.translate(parse_expression('FINDSTRING([S], "x", 1)'))
+    assert sql == "CHARINDEX(N'x', [S])"
+    assert tr.warnings == []
+
+
+def test_findstring_later_occurrence_warns():
+    tr = Translator()
+    sql = tr.translate(parse_expression('FINDSTRING([S], "x", 2)'))
+    assert sql == "CHARINDEX(N'x', [S])"
+    assert any("occurrence" in w for w in tr.warnings)
+
+
+def test_datepart_with_a_non_literal_argument_warns():
+    tr = Translator()
+    sql = tr.translate(parse_expression("DATEADD([PartCol], 1, [D])"))
+    assert "DATEADD(" in sql
+    assert any("non-literal datepart" in w for w in tr.warnings)
+
+
+# --------------------------------------------------------------------------- #
+# internal emission branches not reached through the value/predicate routing
+#
+# A bool literal, a bare comparison and ISNULL are always intercepted as
+# predicates before _raw_value runs, so these handlers are exercised directly.
+# --------------------------------------------------------------------------- #
+def test_literal_helper_renders_a_bool_as_one_or_zero():
+    assert Translator._literal(ast.Literal(True, "bool")) == "1"
+    assert Translator._literal(ast.Literal(False, "bool")) == "0"
+
+
+def test_unary_helper_renders_bang_in_value_context_as_case():
+    node = ast.Unary("!", parse_expression("[Active]"))
+    assert Translator()._unary(node) == "CASE WHEN NOT ([Active] <> 0) THEN 1 ELSE 0 END"
+
+
+def test_binary_helper_renders_a_comparison_in_value_context_as_case():
+    node = ast.Binary("==", parse_expression("[X]"), ast.Literal("5", "int"))
+    assert Translator()._binary(node) == "CASE WHEN [X] = 5 THEN 1 ELSE 0 END"
+
+
+def test_binary_helper_rejects_an_unknown_operator():
+    node = ast.Binary("@@", parse_expression("[A]"), parse_expression("[B]"))
+    with pytest.raises(ExpressionError, match="unknown binary operator"):
+        Translator().translate(node)
+
+
+def test_fn_isnull_value_handler_emits_a_case():
+    # The value-context ISNULL handler (predicate context is handled in _bool).
+    assert Translator()._fn_isnull([parse_expression("[Email]")]) == (
+        "CASE WHEN [Email] IS NULL THEN 1 ELSE 0 END"
+    )
+
+
+def test_fn_null_handler_emits_a_bare_null():
+    assert Translator()._fn_null([]) == "NULL"
