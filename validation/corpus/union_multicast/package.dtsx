@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="union_multicast"
+                DTS:VersionBuild="1">
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[ODBC]"
+                           DTS:ObjectName="ODBC"
+                           DTS:CreationName="OLEDB">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+            DTS:ConnectionString="Data Source=localhost;Initial Catalog=val_union_multicast;Provider=SQLNCLI11;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT Union Multicast"
+                    DTS:refId="Package\DFT Union Multicast">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+
+            <!-- First source: current year events (pre-sorted by id for Merge) -->
+            <component refId="SrcA" name="Source Current"
+                       componentClassID="Microsoft.ODBCSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT id, event_type, amount FROM dbo.src_events_current ORDER BY id</property>
+              </properties>
+              <connections>
+                <connection refId="SrcA.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <outputs>
+                <output refId="SrcA.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="SrcA.Output.id" name="id" dataType="i4" />
+                    <outputColumn refId="SrcA.Output.event_type" name="event_type" dataType="wstr" length="50" />
+                    <outputColumn refId="SrcA.Output.amount" name="amount" dataType="numeric" precision="18" scale="4" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Second source: prior year events (pre-sorted by id for Merge) -->
+            <component refId="SrcB" name="Source Prior"
+                       componentClassID="Microsoft.ODBCSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT id, event_type, amount FROM dbo.src_events_prior ORDER BY id</property>
+              </properties>
+              <connections>
+                <connection refId="SrcB.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <outputs>
+                <output refId="SrcB.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="SrcB.Output.id" name="id" dataType="i4" />
+                    <outputColumn refId="SrcB.Output.event_type" name="event_type" dataType="wstr" length="50" />
+                    <outputColumn refId="SrcB.Output.amount" name="amount" dataType="numeric" precision="18" scale="4" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Merge: sorted-merge of the two streams (transpiles as UNION ALL) -->
+            <component refId="Mrg" name="Merge Events"
+                       componentClassID="Microsoft.Merge">
+              <inputs>
+                <input refId="Mrg.Input1" name="Merge Input 1">
+                  <inputColumns>
+                    <inputColumn refId="Mrg.Input1.id" cachedName="id"
+                                 lineageId="SrcA.Output.id" usageType="readOnly" />
+                    <inputColumn refId="Mrg.Input1.event_type" cachedName="event_type"
+                                 lineageId="SrcA.Output.event_type" usageType="readOnly" />
+                    <inputColumn refId="Mrg.Input1.amount" cachedName="amount"
+                                 lineageId="SrcA.Output.amount" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+                <input refId="Mrg.Input2" name="Merge Input 2">
+                  <inputColumns>
+                    <inputColumn refId="Mrg.Input2.id" cachedName="id"
+                                 lineageId="SrcB.Output.id" usageType="readOnly" />
+                    <inputColumn refId="Mrg.Input2.event_type" cachedName="event_type"
+                                 lineageId="SrcB.Output.event_type" usageType="readOnly" />
+                    <inputColumn refId="Mrg.Input2.amount" cachedName="amount"
+                                 lineageId="SrcB.Output.amount" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="Mrg.Output" name="Merge Output">
+                  <outputColumns>
+                    <outputColumn refId="Mrg.Output.id" name="id" dataType="i4" />
+                    <outputColumn refId="Mrg.Output.event_type" name="event_type" dataType="wstr" length="50" />
+                    <outputColumn refId="Mrg.Output.amount" name="amount" dataType="numeric" precision="18" scale="4" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Row Count: counts rows into a variable; rows pass through unchanged -->
+            <component refId="RC" name="Count Events"
+                       componentClassID="Microsoft.RowCount">
+              <properties>
+                <property name="VariableName">User::EventCount</property>
+              </properties>
+              <inputs>
+                <input refId="RC.Input" name="Row Count Input" />
+              </inputs>
+              <outputs>
+                <output refId="RC.Output" name="Row Count Output" />
+              </outputs>
+            </component>
+
+            <!-- Multicast: fan the combined stream to two branches -->
+            <component refId="MC" name="Multicast Events"
+                       componentClassID="Microsoft.Multicast">
+              <inputs>
+                <input refId="MC.Input" name="Multicast Input" />
+              </inputs>
+              <outputs>
+                <output refId="MC.Out1" name="Multicast Output 1" />
+                <output refId="MC.Out2" name="Multicast Output 2" />
+              </outputs>
+            </component>
+
+            <!-- Audit: append package context columns before the primary destination.
+                 AuditType 2 = PackageName (deterministic string literal in SQL).
+                 AuditType 4 = ExecutionStartTime (SYSDATETIME — non-deterministic).
+                 Both are marked 'exclude' in the ledger so comparison skips them. -->
+            <component refId="Aud" name="Audit Events"
+                       componentClassID="Microsoft.Audit">
+              <inputs>
+                <input refId="Aud.Input" name="Audit Input" />
+              </inputs>
+              <outputs>
+                <output refId="Aud.Output" name="Audit Output"
+                        synchronousInputId="Aud.Input">
+                  <outputColumns>
+                    <outputColumn refId="Aud.Output.pkg_name" name="pkg_name"
+                                  dataType="wstr" length="255">
+                      <properties>
+                        <property name="AuditType">2</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="Aud.Output.exec_time" name="exec_time"
+                                  dataType="dbTimeStamp">
+                      <properties>
+                        <property name="AuditType">4</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Primary destination: combined events with audit columns -->
+            <component refId="DstAll" name="Destination All Events"
+                       componentClassID="Microsoft.ODBCDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">[dbo].[dst_all_events]</property>
+              </properties>
+              <connections>
+                <connection refId="DstAll.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="DstAll.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="DstAll.Input.id" cachedName="id" usageType="readOnly" />
+                    <inputColumn refId="DstAll.Input.event_type" cachedName="event_type" usageType="readOnly" />
+                    <inputColumn refId="DstAll.Input.amount" cachedName="amount" usageType="readOnly" />
+                    <inputColumn refId="DstAll.Input.pkg_name" cachedName="pkg_name" usageType="readOnly" />
+                    <inputColumn refId="DstAll.Input.exec_time" cachedName="exec_time" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+            <!-- Backup destination: combined events without audit columns -->
+            <component refId="DstBak" name="Destination Backup"
+                       componentClassID="Microsoft.ODBCDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">[dbo].[dst_events_backup]</property>
+              </properties>
+              <connections>
+                <connection refId="DstBak.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="DstBak.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="DstBak.Input.id" cachedName="id" usageType="readOnly" />
+                    <inputColumn refId="DstBak.Input.event_type" cachedName="event_type" usageType="readOnly" />
+                    <inputColumn refId="DstBak.Input.amount" cachedName="amount" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+          </components>
+          <paths>
+            <path refId="p1" startId="SrcA.Output" endId="Mrg.Input1" />
+            <path refId="p2" startId="SrcB.Output" endId="Mrg.Input2" />
+            <path refId="p3" startId="Mrg.Output" endId="RC.Input" />
+            <path refId="p4" startId="RC.Output" endId="MC.Input" />
+            <path refId="p5" startId="MC.Out1" endId="Aud.Input" />
+            <path refId="p6" startId="Aud.Output" endId="DstAll.Input" />
+            <path refId="p7" startId="MC.Out2" endId="DstBak.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

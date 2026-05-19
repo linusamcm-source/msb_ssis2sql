@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="derived_and_convert"
+                DTS:VersionBuild="1">
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[ODBC]"
+                           DTS:ObjectName="ODBC"
+                           DTS:CreationName="OLEDB">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+            DTS:ConnectionString="Data Source=localhost;Initial Catalog=val_derived_and_convert;Provider=SQLNCLI11;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT Derived and Convert"
+                    DTS:refId="Package\DFT Derived and Convert">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+
+            <!-- ODBC Source -->
+            <component refId="Src" name="Source"
+                       componentClassID="Microsoft.ODBCSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT id, price, qty, label, event_dt FROM dbo.src_products</property>
+              </properties>
+              <connections>
+                <connection refId="Src.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <outputs>
+                <output refId="Src.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="Src.Output.id" name="id" dataType="i4" />
+                    <outputColumn refId="Src.Output.price" name="price" dataType="numeric" precision="18" scale="4" />
+                    <outputColumn refId="Src.Output.qty" name="qty" dataType="i4" />
+                    <outputColumn refId="Src.Output.label" name="label" dataType="wstr" length="200" />
+                    <outputColumn refId="Src.Output.event_dt" name="event_dt" dataType="dbTimeStamp" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Data Conversion: price (numeric) → float; id → string -->
+            <component refId="Conv" name="Data Conversion"
+                       componentClassID="Microsoft.DataConvert">
+              <inputs>
+                <input refId="Conv.Input" name="Data Conversion Input">
+                  <inputColumns>
+                    <inputColumn refId="Conv.Input.price" cachedName="price"
+                                 lineageId="Src.Output.price" usageType="readOnly" />
+                    <inputColumn refId="Conv.Input.id" cachedName="id"
+                                 lineageId="Src.Output.id" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="Conv.Output" name="Data Conversion Output"
+                        synchronousInputId="Conv.Input">
+                  <outputColumns>
+                    <outputColumn refId="Conv.Output.price_flt" name="price_flt" dataType="r8">
+                      <properties>
+                        <property name="SourceInputColumnLineageID">Src.Output.price</property>
+                        <property name="FastParse">false</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="Conv.Output.id_str" name="id_str" dataType="wstr" length="20">
+                      <properties>
+                        <property name="SourceInputColumnLineageID">Src.Output.id</property>
+                        <property name="FastParse">false</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Derived Column: arithmetic, ISNULL, TRIM, DATEPART, ternary -->
+            <component refId="Deriv" name="Derived Columns"
+                       componentClassID="Microsoft.DerivedColumn">
+              <inputs>
+                <input refId="Deriv.Input" name="Derived Column Input">
+                  <inputColumns>
+                    <inputColumn refId="Deriv.Input.price" cachedName="price"
+                                 lineageId="Src.Output.price" usageType="readOnly" />
+                    <inputColumn refId="Deriv.Input.qty" cachedName="qty"
+                                 lineageId="Src.Output.qty" usageType="readOnly" />
+                    <inputColumn refId="Deriv.Input.label" cachedName="label"
+                                 lineageId="Src.Output.label" usageType="readOnly" />
+                    <inputColumn refId="Deriv.Input.event_dt" cachedName="event_dt"
+                                 lineageId="Src.Output.event_dt" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="Deriv.Output" name="Derived Column Output"
+                        synchronousInputId="Deriv.Input">
+                  <outputColumns>
+                    <outputColumn refId="Deriv.Output.total_value" name="total_value"
+                                  dataType="numeric" precision="18" scale="4">
+                      <properties>
+                        <property name="Expression">[price] * (DT_NUMERIC,18,4)[qty]</property>
+                        <property name="FriendlyExpression">[price] * (DT_NUMERIC,18,4)[qty]</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="Deriv.Output.label_clean" name="label_clean"
+                                  dataType="wstr" length="200">
+                      <properties>
+                        <property name="Expression">TRIM([label])</property>
+                        <property name="FriendlyExpression">TRIM([label])</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="Deriv.Output.event_year" name="event_year"
+                                  dataType="i4">
+                      <properties>
+                        <property name="Expression">DATEPART("yyyy",[event_dt])</property>
+                        <property name="FriendlyExpression">DATEPART("yyyy",[event_dt])</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="Deriv.Output.price_category" name="price_category"
+                                  dataType="wstr" length="10">
+                      <properties>
+                        <property name="Expression">[price] > 100 ? "PREMIUM" : "STANDARD"</property>
+                        <property name="FriendlyExpression">[price] > 100 ? "PREMIUM" : "STANDARD"</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="Deriv.Output.label_safe" name="label_safe"
+                                  dataType="wstr" length="200">
+                      <properties>
+                        <property name="Expression">ISNULL([label]) ? "UNKNOWN" : [label]</property>
+                        <property name="FriendlyExpression">ISNULL([label]) ? "UNKNOWN" : [label]</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Copy Column: duplicate qty as "Copy of qty" for corpus coverage -->
+            <component refId="Copy" name="Copy Column"
+                       componentClassID="Microsoft.CopyColumn">
+              <inputs>
+                <input refId="Copy.Input" name="Copy Column Input">
+                  <inputColumns>
+                    <inputColumn refId="Copy.Input.qty" cachedName="qty"
+                                 lineageId="Src.Output.qty" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="Copy.Output" name="Copy Column Output"
+                        synchronousInputId="Copy.Input">
+                  <outputColumns>
+                    <outputColumn refId="Copy.Output.qty_copy" name="qty_copy" dataType="i4">
+                      <properties>
+                        <property name="copyColumnId">Src.Output.qty</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- ODBC Destination -->
+            <component refId="Dst" name="Destination"
+                       componentClassID="Microsoft.ODBCDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">[dbo].[dst_products]</property>
+              </properties>
+              <connections>
+                <connection refId="Dst.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="Dst.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="Dst.Input.id" cachedName="id" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.price_flt" cachedName="price_flt" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.id_str" cachedName="id_str" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.total_value" cachedName="total_value" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.label_clean" cachedName="label_clean" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.event_year" cachedName="event_year" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.price_category" cachedName="price_category" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.label_safe" cachedName="label_safe" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.qty_copy" cachedName="qty_copy" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+          </components>
+          <paths>
+            <path refId="p1" startId="Src.Output" endId="Conv.Input" />
+            <path refId="p2" startId="Conv.Output" endId="Deriv.Input" />
+            <path refId="p3" startId="Deriv.Output" endId="Copy.Input" />
+            <path refId="p4" startId="Copy.Output" endId="Dst.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="lookup_match"
+                DTS:VersionBuild="1">
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[ODBC]"
+                           DTS:ObjectName="ODBC"
+                           DTS:CreationName="OLEDB">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+            DTS:ConnectionString="Data Source=localhost;Initial Catalog=val_lookup_match;Provider=SQLNCLI11;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT Lookup"
+                    DTS:refId="Package\DFT Lookup">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+
+            <component refId="Src" name="Source"
+                       componentClassID="Microsoft.ODBCSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT id, order_id, amount FROM dbo.src_orders</property>
+              </properties>
+              <connections>
+                <connection refId="Src.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <outputs>
+                <output refId="Src.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="Src.Output.id" name="id" dataType="i4" />
+                    <outputColumn refId="Src.Output.order_id" name="order_id" dataType="i4" />
+                    <outputColumn refId="Src.Output.amount" name="amount" dataType="numeric" precision="18" scale="4" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Lookup against ref_customers to enrich orders with customer_name and region -->
+            <component refId="Lkp" name="Lookup Customer"
+                       componentClassID="Microsoft.Lookup">
+              <properties>
+                <property name="SqlCommand">SELECT customer_id, customer_name, region FROM dbo.ref_customers</property>
+                <property name="NoMatchBehavior">0</property>
+              </properties>
+              <connections>
+                <connection refId="Lkp.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="Lkp.Input" name="Lookup Input">
+                  <inputColumns>
+                    <inputColumn refId="Lkp.Input.order_id" cachedName="order_id"
+                                 lineageId="Src.Output.order_id" usageType="readOnly">
+                      <properties>
+                        <property name="JoinToReferenceColumn">customer_id</property>
+                      </properties>
+                    </inputColumn>
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <!-- Matched rows -->
+                <output refId="Lkp.Match" name="Lookup Match Output">
+                  <outputColumns>
+                    <outputColumn refId="Lkp.Match.customer_name" name="customer_name" dataType="wstr" length="100">
+                      <properties>
+                        <property name="CopyFromReferenceColumn">customer_name</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="Lkp.Match.region" name="region" dataType="wstr" length="50">
+                      <properties>
+                        <property name="CopyFromReferenceColumn">region</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+                <!-- No-match rows sent to separate destination -->
+                <output refId="Lkp.NoMatch" name="Lookup No Match Output" />
+              </outputs>
+            </component>
+
+            <!-- Matched orders with customer enrichment -->
+            <component refId="DstMatch" name="Destination Matched"
+                       componentClassID="Microsoft.ODBCDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">[dbo].[dst_matched]</property>
+              </properties>
+              <connections>
+                <connection refId="DstMatch.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="DstMatch.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="DstMatch.Input.id" cachedName="id" usageType="readOnly" />
+                    <inputColumn refId="DstMatch.Input.order_id" cachedName="order_id" usageType="readOnly" />
+                    <inputColumn refId="DstMatch.Input.amount" cachedName="amount" usageType="readOnly" />
+                    <inputColumn refId="DstMatch.Input.customer_name" cachedName="customer_name" usageType="readOnly" />
+                    <inputColumn refId="DstMatch.Input.region" cachedName="region" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+            <!-- Unmatched orders (no customer found) -->
+            <component refId="DstNoMatch" name="Destination Unmatched"
+                       componentClassID="Microsoft.ODBCDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">[dbo].[dst_unmatched]</property>
+              </properties>
+              <connections>
+                <connection refId="DstNoMatch.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="DstNoMatch.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="DstNoMatch.Input.id" cachedName="id" usageType="readOnly" />
+                    <inputColumn refId="DstNoMatch.Input.order_id" cachedName="order_id" usageType="readOnly" />
+                    <inputColumn refId="DstNoMatch.Input.amount" cachedName="amount" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+          </components>
+          <paths>
+            <path refId="p1" startId="Src.Output" endId="Lkp.Input" />
+            <path refId="p2" startId="Lkp.Match" endId="DstMatch.Input" />
+            <path refId="p3" startId="Lkp.NoMatch" endId="DstNoMatch.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

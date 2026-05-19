@@ -1,0 +1,7 @@
+emp_id,dept_id,name
+1,10,Alice
+2,10,Bob
+3,20,Charlie
+4,30,Dana
+5,99,Eve
+6,\N,Frank

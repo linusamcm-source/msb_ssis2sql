@@ -1,0 +1,19 @@
+package: aggregate_group
+destinations:
+  dst_region_totals:
+    comparison: ordered
+    order_key: [region]
+    columns:
+      region:       { policy: exact }
+      total_amount: { policy: float, epsilon: 0.001 }
+      avg_amount:   { policy: float, epsilon: 0.001 }
+      min_amount:   { policy: float, epsilon: 0.001 }
+      max_amount:   { policy: float, epsilon: 0.001 }
+      row_count:    { policy: exact }
+      distinct_ids: { policy: exact }
+    known_divergences:
+      # src_sales row 11 has region=NULL. SQL GROUP BY NULL forms its own group,
+      # producing a NULL-region row in dst_region_totals. SSIS Aggregate also
+      # groups NULL values together as a single group. Behaviour matches; no
+      # divergence. The NULL group appears in both SQL and SSIS output.
+      []

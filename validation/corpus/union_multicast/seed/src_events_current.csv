@@ -1,0 +1,5 @@
+id,event_type,amount
+1,sale,99.9900
+2,refund,10.0000
+3,sale,250.0000
+4,adjustment,0.0100
