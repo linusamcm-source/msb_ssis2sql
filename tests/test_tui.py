@@ -239,7 +239,12 @@ def test_recipe_dataclass_has_sensible_defaults():
 # ---------------------------------------------------------------------------
 
 def _three_recipes() -> list[Recipe]:
-    """Minimal recipe list used by compose/nav tests."""
+    """Minimal recipe list used by compose/nav tests.
+
+    The three names deliberately straddle the tab partition: ``demo`` lands in
+    the Migration tab (it is in ``_MIGRATION_RECIPES``); ``clean`` and ``test``
+    fall through to the Configuration catch-all tab.
+    """
     return [
         Recipe(name="clean", doc="Remove artefacts."),
         Recipe(name="demo", doc="Convert the example."),
@@ -247,56 +252,99 @@ def _three_recipes() -> list[Recipe]:
     ]
 
 
+def _spanning_recipes() -> list[Recipe]:
+    """Recipe list with one ordinary recipe in each tab — predictable per-tab
+    sub-sidebars.
+
+    ``demo`` → Migration, ``validate-cov`` → Validation, ``clean`` →
+    Configuration. Combined with the two synthetic panes the app inserts
+    (``validation`` and ``config``), every tab has a known button set.
+    """
+    return [
+        Recipe(name="clean", doc="Remove artefacts."),
+        Recipe(name="demo", doc="Convert the example."),
+        Recipe(name="validate-cov", doc="Run validation with coverage."),
+    ]
+
+
 async def test_app_compose_one_button_per_recipe(monkeypatch, tmp_path):
-    """AC 1: sidebar has one nav-button per non-excluded recipe, plus the
-    synthetic ``validation`` pane button the app always appends."""
+    """AC 1: the three tabs exist and each tab's sub-sidebar holds exactly its
+    expected nav-buttons — one per recipe partitioned into that tab, plus the
+    synthetic ``validation``/``config`` pane buttons the app always inserts."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Button, TabPane
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _spanning_recipes())
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        # All three TabPanes are present.
+        tab_ids = {tp.id for tp in app.query(TabPane)}
+        assert tab_ids == {"tab-migration", "tab-validation", "tab-configuration"}
+
+        # Each tab's sub-sidebar holds exactly its expected nav-buttons.
+        def nav_ids(tab_id: str) -> set[str]:
+            pane = app.query_one(f"#{tab_id}", TabPane)
+            return {b.id for b in pane.query(".tab-sidebar Button")}
+
+        assert nav_ids("tab-migration") == {"nav-demo"}
+        assert nav_ids("tab-validation") == {"nav-validation", "nav-validate-cov"}
+        assert nav_ids("tab-configuration") == {"nav-config", "nav-clean"}
+
+
+async def test_app_compose_no_button_for_excluded_recipes(monkeypatch, tmp_path):
+    """AC 2: no nav-button exists for opus or tui in any of the three tabs."""
     import ssis2sql.tui as tui_mod
     from textual.widgets import Button
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
-    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _three_recipes())
-
-    app = Ssis2SqlTUI()
-    async with app.run_test() as pilot:
-        sidebar_buttons = list(app.query("#sidebar Button"))
-        assert len(sidebar_buttons) == 4
-        ids = {b.id for b in sidebar_buttons}
-        assert ids == {"nav-clean", "nav-demo", "nav-test", "nav-validation"}
-
-
-async def test_app_compose_no_button_for_excluded_recipes(monkeypatch, tmp_path):
-    """AC 2: no sidebar button exists for opus or tui."""
-    import ssis2sql.tui as tui_mod
-
-    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
     # discover_recipes already filters them, but we assert on button presence.
-    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _three_recipes())
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _spanning_recipes())
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        ids = {b.id for b in app.query("#sidebar Button")}
+        # Query every Button in the whole app — across all three tabs.
+        ids = {b.id for b in app.query(Button)}
         assert "nav-opus" not in ids
         assert "nav-tui" not in ids
 
 
 async def test_clicking_nav_button_switches_content_pane(monkeypatch, tmp_path):
-    """AC 3: clicking a sidebar button sets ContentSwitcher.current to pane-<name>."""
+    """AC 3: after switching to a tab, clicking one of its sub-sidebar buttons
+    sets that tab's own ContentSwitcher (#content-<tab>) to pane-<name>."""
     import ssis2sql.tui as tui_mod
-    from textual.widgets import ContentSwitcher
+    from textual.widgets import ContentSwitcher, TabbedContent
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
-    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _three_recipes())
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _spanning_recipes())
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
+        # demo lives in the Migration tab — which is the initial tab.
         await pilot.click("#nav-demo")
         await pilot.pause()
+        assert (
+            app.query_one("#content-migration", ContentSwitcher).current
+            == "pane-demo"
+        )
 
-        assert app.query_one(ContentSwitcher).current == "pane-demo"
+        # clean lives in the Configuration tab — switch to it first.
+        app.query_one(TabbedContent).active = "tab-configuration"
+        await pilot.pause()
+        await pilot.click("#nav-clean")
+        await pilot.pause()
+        assert (
+            app.query_one("#content-configuration", ContentSwitcher).current
+            == "pane-clean"
+        )
 
 
 async def test_run_button_writes_to_log_and_exits(monkeypatch, tmp_path):
-    """AC 4: pressing Run streams subprocess output into the Log; [exit N] appears."""
+    """AC 4: pressing Run streams subprocess output into the Log; [exit N] appears.
+
+    ``demo`` lives in the Migration tab — the initial tab — so its Run button is
+    on screen; no tab switch is needed before clicking it."""
     import ssis2sql.tui as tui_mod
     from textual.widgets import Log
 
@@ -328,9 +376,13 @@ async def test_run_button_writes_to_log_and_exits(monkeypatch, tmp_path):
 
 async def test_run_output_is_incremental_and_ui_stays_responsive(monkeypatch, tmp_path):
     """AC 5: the recipe runner runs off the event loop — the UI still processes
-    input while a run is in flight, and the run streams its output to the Log."""
+    input while a run is in flight, and the run streams its output to the Log.
+
+    ``demo`` (Migration tab) and ``test`` (Configuration tab) deliberately sit in
+    different tabs: starting demo's run, switching to the Configuration tab, then
+    clicking nav-test proves the in-flight thread worker did not block the loop."""
     import ssis2sql.tui as tui_mod
-    from textual.widgets import ContentSwitcher, Log
+    from textual.widgets import Button, ContentSwitcher, Log, TabbedContent
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: [
@@ -346,14 +398,25 @@ async def test_run_output_is_incremental_and_ui_stays_responsive(monkeypatch, tm
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        # Start a run on the demo pane, then switch panes via the sidebar.
+        # Start a run on the demo pane (Migration tab, the initial tab).
         await pilot.click("#run-demo")
-        await pilot.click("#nav-test")
+        # Switch to the Configuration tab and trigger its test nav-button.
+        # Button.press() (not pilot.click) is used here because the freshly
+        # activated tab's sub-sidebar has not been given a click region within
+        # the same tick the worker started — press() routes the Button.Pressed
+        # message just as a real click would, and is what proves the nav action
+        # is still processed while the run is in flight.
+        app.query_one(TabbedContent).active = "tab-configuration"
+        await pilot.pause()
+        app.query_one("#nav-test", Button).press()
         await pilot.pause(delay=0.4)
 
-        # The sidebar click was processed despite the in-flight run — the
-        # event loop was not blocked by the recipe runner (it is a thread worker).
-        assert app.query_one(ContentSwitcher).current == "pane-test"
+        # The nav action was processed despite the in-flight run — the event
+        # loop was not blocked by the recipe runner (it is a thread worker).
+        assert (
+            app.query_one("#content-configuration", ContentSwitcher).current
+            == "pane-test"
+        )
         # And the run still streamed its output through to the demo pane's Log.
         demo_log = "\n".join(app.query_one("#log-demo", Log).lines)
         assert "[exit 0]" in demo_log
@@ -399,12 +462,28 @@ async def test_q_key_quits_app_when_focus_not_on_input(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 def _picker_recipes() -> list[Recipe]:
-    """Minimal recipe list that triggers picker-pane branching."""
+    """Minimal recipe list that triggers picker-pane branching.
+
+    convert, convert-tree and inspect are all in ``_MIGRATION_RECIPES``, so all
+    three picker panes live under the Migration tab.
+    """
     return [
         Recipe(name="convert", doc="Convert a .dtsx.", params=["FILE"]),
         Recipe(name="convert-tree", doc="Recursively convert.", params=["INPUT", "OUTPUT"]),
         Recipe(name="inspect", doc="Inspect a .dtsx.", params=["FILE"]),
     ]
+
+
+async def _activate_tab(app, pilot, tab_id: str) -> None:
+    """Switch the TabbedContent to ``tab_id`` and let the UI settle.
+
+    Programmatic tab switching (setting ``TabbedContent.active``) is the robust
+    approach — it avoids fragile ``--content-tab-*`` CSS-id selectors.
+    """
+    from textual.widgets import TabbedContent
+
+    app.query_one(TabbedContent).active = tab_id
+    await pilot.pause()
 
 
 # ---------------------------------------------------------------------------
@@ -1016,26 +1095,32 @@ def test_parse_pytest_summary(lines, expected):
 
 
 async def test_validation_pane_is_present_and_navigable(monkeypatch, tmp_path):
-    """Plan §3.1(1): clicking nav-validation switches the ContentSwitcher to
-    pane-validation."""
+    """Plan §3.1(1): switching to the Validation tab and clicking nav-validation
+    switches that tab's ContentSwitcher (#content-validation) to pane-validation."""
     import ssis2sql.tui as tui_mod
-    from textual.widgets import ContentSwitcher
+    from textual.widgets import ContentSwitcher, TabbedContent
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _three_recipes())
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
+        app.query_one(TabbedContent).active = "tab-validation"
+        await pilot.pause()
         await pilot.click("#nav-validation")
         await pilot.pause()
 
-        assert app.query_one(ContentSwitcher).current == "pane-validation"
+        assert (
+            app.query_one("#content-validation", ContentSwitcher).current
+            == "pane-validation"
+        )
 
 
 async def test_layer_recipes_have_no_plain_sidebar_button(monkeypatch, tmp_path):
     """Plan §3.1(2): the three layer recipes (validate-static, validate-unit,
-    validate) move into the pane and get no plain sidebar button; validate-cov
-    stays an ordinary RecipePane button, and nav-validation is always present."""
+    validate) move into the pane and get no plain nav-button in any tab;
+    validate-cov stays an ordinary RecipePane button, and nav-validation (the
+    synthetic Validation pane button) is always present."""
     import ssis2sql.tui as tui_mod
     from textual.widgets import Button
 
@@ -1054,22 +1139,23 @@ async def test_layer_recipes_have_no_plain_sidebar_button(monkeypatch, tmp_path)
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        ids = {b.id for b in app.query("#sidebar Button")}
+        # Every Button across all three tabs.
+        ids = {b.id for b in app.query(Button)}
         # The pane button and the ordinary validate-cov button are present.
         assert "nav-validation" in ids
         assert "nav-validate-cov" in ids
-        # The three layer recipes have no plain sidebar button.
+        # The three layer recipes have no plain nav-button.
         assert "nav-validate-static" not in ids
         assert "nav-validate-unit" not in ids
         assert "nav-validate" not in ids
 
 
 async def test_static_layer_button_streams_into_log_and_summary(monkeypatch, tmp_path):
-    """Plan §3.1(3): clicking the Static layer button streams `just
-    validate-static` output into #log-validation, ends with [exit 0], and
-    #validation-summary renders the parsed count."""
+    """Plan §3.1(3): after switching to the Validation tab, clicking the Static
+    layer button streams `just validate-static` output into #log-validation,
+    ends with [exit 0], and #validation-summary renders the parsed count."""
     import ssis2sql.tui as tui_mod
-    from textual.widgets import Log, Static
+    from textual.widgets import Log, Static, TabbedContent
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _three_recipes())
@@ -1086,6 +1172,8 @@ async def test_static_layer_button_streams_into_log_and_summary(monkeypatch, tmp
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
+        app.query_one(TabbedContent).active = "tab-validation"
+        await pilot.pause()
         await pilot.click("#nav-validation")
         await pilot.pause()
         await pilot.click("#run-validate-static")
@@ -1102,10 +1190,11 @@ async def test_static_layer_button_streams_into_log_and_summary(monkeypatch, tmp
 
 
 async def test_differential_button_warns_when_dotenv_absent(monkeypatch, tmp_path):
-    """Plan §3.1(4): with no .env in the repo root, clicking the Differential
-    layer button writes a `.env not found` note into #log-validation."""
+    """Plan §3.1(4): with no .env in the repo root, switching to the Validation
+    tab and clicking the Differential layer button writes a `.env not found`
+    note into #log-validation."""
     import ssis2sql.tui as tui_mod
-    from textual.widgets import Log
+    from textual.widgets import Log, TabbedContent
 
     # tmp_path has no .env file.
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1120,6 +1209,8 @@ async def test_differential_button_warns_when_dotenv_absent(monkeypatch, tmp_pat
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
+        app.query_one(TabbedContent).active = "tab-validation"
+        await pilot.pause()
         await pilot.click("#nav-validation")
         await pilot.pause()
         await pilot.click("#run-validate")
@@ -1131,10 +1222,11 @@ async def test_differential_button_warns_when_dotenv_absent(monkeypatch, tmp_pat
 
 
 async def test_differential_button_no_warning_when_dotenv_present(monkeypatch, tmp_path):
-    """Plan §3.1(5): with a .env present in the repo root, clicking the
-    Differential layer button does NOT write the `.env not found` note."""
+    """Plan §3.1(5): with a .env present in the repo root, switching to the
+    Validation tab and clicking the Differential layer button does NOT write the
+    `.env not found` note."""
     import ssis2sql.tui as tui_mod
-    from textual.widgets import Log
+    from textual.widgets import Log, TabbedContent
 
     # A .env file exists in the repo root — no warning should be emitted.
     (tmp_path / ".env").write_text("MSSQL_SERVER_ADDRESS=x\n", encoding="utf-8")
@@ -1151,6 +1243,8 @@ async def test_differential_button_no_warning_when_dotenv_present(monkeypatch, t
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
+        app.query_one(TabbedContent).active = "tab-validation"
+        await pilot.pause()
         await pilot.click("#nav-validation")
         await pilot.pause()
         await pilot.click("#run-validate")
@@ -1254,3 +1348,154 @@ def test_write_env_partial_dict_does_not_crash(tmp_path):
     assert values["MSSQL_SERVER_PORT"] == ""
     assert values["MSSQL_SA_USERNAME"] == ""
     assert values["MSSQL_SA_PASSWORD"] == ""
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 (tabs) — TabbedContent presence/navigation + ConfigPane (plan §3.2).
+#
+# The TUI is a three-tab TabbedContent: tab-migration, tab-validation,
+# tab-configuration. Tabs are switched programmatically by setting
+# TabbedContent.active — the robust path, avoiding fragile --content-tab-* CSS
+# selectors. Each tab owns its own ContentSwitcher (#content-<tab>).
+# ---------------------------------------------------------------------------
+
+
+async def test_three_tab_panes_exist(monkeypatch, tmp_path):
+    """Plan §3.2: the TUI composes exactly three TabPanes — tab-migration,
+    tab-validation, tab-configuration."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import TabPane
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _spanning_recipes())
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        tab_ids = {tp.id for tp in app.query(TabPane)}
+        assert tab_ids == {"tab-migration", "tab-validation", "tab-configuration"}
+
+
+async def test_switching_active_tab_shows_that_tabs_pane(monkeypatch, tmp_path):
+    """Plan §3.2: setting TabbedContent.active to each tab id shows that tab's
+    own pane — its #content-<tab> ContentSwitcher becomes the visible one."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import ContentSwitcher, TabbedContent
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _spanning_recipes())
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        tabbed = app.query_one(TabbedContent)
+
+        # Migration is the initial tab.
+        assert tabbed.active == "tab-migration"
+        assert app.query_one("#content-migration", ContentSwitcher).display is True
+
+        # Switch to Validation — its ContentSwitcher becomes visible.
+        await _activate_tab(app, pilot, "tab-validation")
+        assert tabbed.active == "tab-validation"
+        assert app.query_one("#content-validation", ContentSwitcher).display is True
+
+        # Switch to Configuration — its ContentSwitcher becomes visible.
+        await _activate_tab(app, pilot, "tab-configuration")
+        assert tabbed.active == "tab-configuration"
+        assert app.query_one("#content-configuration", ContentSwitcher).display is True
+
+
+async def test_config_pane_inputs_prefill_from_env(monkeypatch, tmp_path):
+    """Plan §3.2: the four cfg-MSSQL_* Inputs pre-fill from a tmp_path/.env;
+    the MSSQL_SA_PASSWORD Input is masked (.password is True)."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Input
+
+    # A .env in the repo root with all four MSSQL_* keys.
+    (tmp_path / ".env").write_text(
+        "MSSQL_SERVER_ADDRESS=db.example.com\n"
+        "MSSQL_SERVER_PORT=1433\n"
+        "MSSQL_SA_USERNAME=sa\n"
+        "MSSQL_SA_PASSWORD=s3cr3t\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _spanning_recipes())
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        await _activate_tab(app, pilot, "tab-configuration")
+
+        # Each Input pre-fills with the matching .env value.
+        assert app.query_one("#cfg-MSSQL_SERVER_ADDRESS", Input).value == "db.example.com"
+        assert app.query_one("#cfg-MSSQL_SERVER_PORT", Input).value == "1433"
+        assert app.query_one("#cfg-MSSQL_SA_USERNAME", Input).value == "sa"
+        assert app.query_one("#cfg-MSSQL_SA_PASSWORD", Input).value == "s3cr3t"
+
+        # The password Input is masked; the other three are not.
+        assert app.query_one("#cfg-MSSQL_SA_PASSWORD", Input).password is True
+        assert app.query_one("#cfg-MSSQL_SERVER_ADDRESS", Input).password is False
+        assert app.query_one("#cfg-MSSQL_SERVER_PORT", Input).password is False
+        assert app.query_one("#cfg-MSSQL_SA_USERNAME", Input).password is False
+
+
+async def test_config_pane_save_writes_env_and_updates_status(monkeypatch, tmp_path):
+    """Plan §3.2: typing values into the four Inputs and clicking
+    #run-config-save writes them to .env on disk and updates #config-status.
+
+    A roomy terminal size is used so the Save button (below the four Inputs in
+    the scrollable ConfigPane) is on screen and clickable."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Input, Static
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _spanning_recipes())
+
+    app = Ssis2SqlTUI()
+    # Large size: the Save button sits below the four Inputs in the scroll pane.
+    async with app.run_test(size=(120, 50)) as pilot:
+        await _activate_tab(app, pilot, "tab-configuration")
+
+        # Type a value into each of the four Inputs.
+        new_values = {
+            "MSSQL_SERVER_ADDRESS": "saved.example.com",
+            "MSSQL_SERVER_PORT": "1434",
+            "MSSQL_SA_USERNAME": "admin",
+            "MSSQL_SA_PASSWORD": "n3wp@ss",
+        }
+        for key, val in new_values.items():
+            app.query_one(f"#cfg-{key}", Input).value = val
+        await pilot.pause()
+
+        await pilot.click("#run-config-save")
+        await pilot.pause()
+
+        # The .env on disk now contains exactly the typed values.
+        on_disk = read_env(tmp_path / ".env")
+        assert {k: on_disk[k] for k in _MSSQL_KEYS} == new_values
+
+        # The status line is updated and names the .env path.
+        status = app.query_one("#config-status", Static)
+        status_text = str(status.render())
+        assert "saved" in status_text
+        assert str(tmp_path / ".env") in status_text
+
+
+async def test_config_pane_with_no_env_has_blank_inputs(monkeypatch, tmp_path):
+    """Plan §3.2: a ConfigPane with no .env in the repo root composes without
+    crashing and leaves all four cfg-MSSQL_* Inputs blank."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Input
+
+    # tmp_path deliberately has NO .env file.
+    assert not (tmp_path / ".env").exists()
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _spanning_recipes())
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        await _activate_tab(app, pilot, "tab-configuration")
+
+        # Every Input is blank — no crash, no stale values.
+        for key in _MSSQL_KEYS:
+            assert app.query_one(f"#cfg-{key}", Input).value == ""
