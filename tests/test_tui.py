@@ -27,7 +27,13 @@ import pytest
 # ssis2sql/tui.py exists (Story 2, commit 3bfe4a9). Story 3 tests fail individually
 # because picker pane widgets (ct-input-tree, file-convert, etc.) and DtsxTree are
 # not yet added to tui.py — that is the Story 3 GREEN phase.
-from ssis2sql.tui import Recipe, Ssis2SqlTUI, discover_recipes, find_repo_root
+from ssis2sql.tui import (
+    Recipe,
+    Ssis2SqlTUI,
+    discover_recipes,
+    find_repo_root,
+    parse_pytest_summary,
+)
 
 # ---------------------------------------------------------------------------
 # Shared fixture: captured just --dump --dump-format json payload.
@@ -972,3 +978,23 @@ def test_justfile_convert_tree_single_quotes_block_injection(tmp_path):
         "command injection succeeded: the sentinel was created, "
         "meaning {{INPUT}} is not single-quoted in the convert-tree recipe"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — parse_pytest_summary: pure helper, scans captured pytest output
+# lines and returns a one-line human summary.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("lines,expected", [
+    (["===== 17 passed in 0.84s ====="], "17 passed"),
+    (["=== 2 failed, 15 passed, 1 skipped in 1.20s ==="],
+     "15 passed · 2 failed · 1 skipped"),
+    (["============ 12 skipped in 0.30s ============"], "12 skipped"),
+    (["=== 1 failed, 1 error in 0.50s ==="], "1 failed · 1 error"),
+    (["=== 8 passed, 4 xfailed in 2.0s ==="], "8 passed · 4 xfailed"),
+    (["collected 0 items", "no tests ran in 0.01s"], "no test summary found"),
+    (["random text", "nothing useful"], "no test summary found"),
+    ([], "no test summary found"),
+])
+def test_parse_pytest_summary(lines, expected):
+    assert parse_pytest_summary(lines) == expected

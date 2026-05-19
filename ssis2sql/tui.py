@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -74,6 +75,27 @@ from textual.worker import get_current_worker  # noqa: E402
 def _slug(name: str) -> str:
     """Recipe name -> a widget-id-safe slug (hyphens are already valid CSS ids)."""
     return name
+
+
+_SUMMARY_RE = re.compile(
+    r"(\d+)\s+(passed|failed|skipped|errors?|xfailed|xpassed|deselected)"
+)
+_SUMMARY_ORDER = ["passed", "failed", "error", "skipped", "xfailed", "xpassed"]
+
+
+def parse_pytest_summary(lines: list[str]) -> str:
+    """Extract pytest's pass/fail/skip counts from captured output lines.
+
+    pytest prints its tally on the final ``===`` line; later occurrences win,
+    so a stray earlier number is harmless. Returns a fallback string when no
+    recognisable summary is present.
+    """
+    counts: dict[str, int] = {}
+    for line in lines:
+        for number, kind in _SUMMARY_RE.findall(line):
+            counts[kind.rstrip("s") if kind == "errors" else kind] = int(number)
+    parts = [f"{counts[k]} {k}" for k in _SUMMARY_ORDER if k in counts]
+    return " · ".join(parts) if parts else "no test summary found"
 
 
 # ---------------------------------------------------------------------------
