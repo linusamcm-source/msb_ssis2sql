@@ -1,19 +1,26 @@
-# Plan — Recursive DTSX→SQL Batch Converter + Textual Control-Panel TUI
+# Epic 1 — Recursive DTSX→SQL Batch Converter + Textual Control-Panel TUI
 
 **Status:** Ready to execute. **Created:** 2026-05-19. **Repo:** `/Users/linus/Development/ssis`
 
+> Restructured 2026-05-19 from `plan-batch-convert-tui.md` into three `## Story` blocks for
+> a per-story team sprint. The original phase numbering survives only inside story bodies
+> as implementation steps (§1.1, §2.1, …). TUI coverage is met with Textual pilot tests
+> (`pytest-asyncio`), not waived — see Story 2 / Story 3 Definition of Done.
+
 ## Goal
 
-1. Add a recursive batch converter: the user picks a **parent directory**; every `.dtsx`
-   beneath it (any depth) is converted to `.sql`, written to a user-chosen **output
-   directory**, with the output tree mirroring the input tree. All path handling uses
-   `pathlib.Path` so it is platform-agnostic.
-2. Expose that as a **`just` recipe** (`convert-tree INPUT OUTPUT`).
-3. Build a **Textual TUI** that acts as a control panel for the whole `justfile`: a
-   left-hand sidebar of buttons, one per recipe, each switching a content pane on the
-   right. The `convert-tree` pane uses `DirectoryTree` widgets to pick the input and
-   output paths. Every pane runs its recipe as a subprocess and streams the output into
-   a log.
+Delivered across three stories:
+
+1. **Story 1** — a recursive batch converter: the user picks a **parent directory**;
+   every `.dtsx` beneath it (any depth) is converted to `.sql`, written to a user-chosen
+   **output directory**, with the output tree mirroring the input tree. All path handling
+   uses `pathlib.Path` so it is platform-agnostic. Exposed as a `just` recipe
+   (`convert-tree INPUT OUTPUT`).
+2. **Story 2** — a **Textual TUI** control panel for the whole `justfile`: a left-hand
+   sidebar of buttons, one per recipe, each switching a content pane on the right. Every
+   pane runs its recipe as a subprocess and streams the output into a log.
+3. **Story 3** — `DirectoryTree` picker panes so `convert-tree`, `convert`, and `inspect`
+   choose their paths visually.
 
 ## Architecture decisions (already made — do not re-litigate)
 
@@ -23,31 +30,21 @@
 | How `convert-tree` is invoked | New `ssis2sql` CLI subcommand `convert-tree`, wrapped by a thin `just` recipe | Matches existing `convert`/`inspect` pattern; keeps logic testable in Python. |
 | Conversion engine | Reuse `ssis2sql.generator.convert_file()` — **do not** write a new converter | Converter already exists and is tested. |
 | TUI ↔ recipe coupling | TUI shells out to `just <recipe> [args]` as a subprocess | User requirement: "a justfile command that is called by the Textual UI". The TUI is a `just` launcher. |
-| Left-hand tabs | `ContentSwitcher` + a `Vertical` of `Button`s docked left (`dock: left`) | **Textual has no left-side tab placement** — verified, see Phase 0. `TabbedContent` is top-docked only. |
+| Left-hand tabs | `ContentSwitcher` + a `Vertical` of `Button`s docked left (`dock: left`) | **Textual has no left-side tab placement** — verified, see Reference. `TabbedContent` is top-docked only. |
 | TUI location | New standalone module `ssis2sql/tui.py`, run via `python -m ssis2sql.tui` | Keeps the `textual` import out of the core `ssis2sql` CLI. |
 | TUI CSS | Inline `CSS` class attribute (not `CSS_PATH`) | Avoids shipping a `.tcss` data file with the package. |
 | Recipe discovery | Parse `just --dump --dump-format json` at startup | Buttons stay in sync with the `justfile` automatically. |
 | `textual` dependency | Add to `[project] dependencies` in `pyproject.toml` | So both `just install` and `just tui` work with no extra flags. |
 | Recipes excluded from TUI buttons | `opus` (interactive Claude session), `tui` (cannot launch the TUI from inside itself) | The rest become buttons. |
 | Output log widget | `Log` (not `RichLog`) | `Log.write_line` is simple and reliable for streaming plain subprocess text; `RichLog` defers writes until its size is known. |
-
-## Phases
-
-- **Phase 0** — Documentation discovery (done; consolidated below).
-- **Phase 1** — `ssis2sql/batch.py` + `convert-tree` CLI subcommand + `just convert-tree` recipe + tests. *No Textual. Independently shippable.*
-- **Phase 2** — Textual TUI scaffold: app, left sidebar, `ContentSwitcher`, generic recipe-runner panes, subprocess worker, `just tui` recipe.
-- **Phase 3** — `DirectoryTree` picker panes for `convert-tree`, `convert`, `inspect`.
-- **Phase 4** — Verification.
-
-Each phase is self-contained: it lists the files, the patterns to copy (with citations),
-a verification checklist, and anti-pattern guards.
+| TUI test strategy | Textual pilot tests (`App.run_test()`) under `pytest-asyncio` | The sprint enforces an 80% coverage gate; the pure helpers alone cannot reach it, so pilot tests are **required**, not optional. |
 
 ---
 
-# Phase 0 — Documentation Discovery (consolidated)
+# Reference — Documentation discovery (shared by all stories)
 
 Two reference sources were generated for this plan. **Read the cited ranges before
-writing code in later phases.**
+writing code.**
 
 - `.repomix-output.xml` — pack of *this* repo (`ssis2sql`).
 - `.repomix-textual.xml` — pack of the Textual framework (`github.com/Textualize/textual`,
@@ -70,10 +67,14 @@ writing code in later phases.**
 | `@logged`, `logger` | `ssis2sql/observability.py` | decorator + loguru logger; existing modules use it on public functions |
 | `Ssis2SqlError` | `ssis2sql/errors.py` | base exception; CLI `main()` catches `Ssis2SqlError` **and** `OSError` and exits 2 |
 | CLI argparse setup | `ssis2sql/cli.py:14-45` | `convert` subparser to copy from; shared `-v/-vv`, `-o/--output`, `--procedure`, `--no-header` flags live here |
-| pytest fixtures | `conftest.py` | `example_path` → `examples/sales_etl.dtsx`; `example_package` → parsed `Package` |
+| pytest fixtures | `conftest.py` (repo root) | `example_path` → `examples/sales_etl.dtsx`; `example_package` → parsed `Package` |
 
 CLI invocation: `python -m ssis2sql convert <dtsx> -o <out>`. Console-script `ssis2sql`
 registered at `pyproject.toml` `[project.scripts]`.
+
+> Every `ssis2sql` symbol, line number, and field list above is a **plan claim about the
+> repo as it was packed**. Engineers and reviewers must re-verify each against the live
+> source (`.repomix-output.xml` / direct Read) before relying on it — line numbers drift.
 
 `just --dump --dump-format json` output shape (verified by running it):
 ```json
@@ -105,6 +106,12 @@ Current recipes: `clean convert convert-samples cov demo inspect install opus te
 | Worker state event | `Worker.StateChanged`; handler `on_worker_state_changed`; `WorkerState` enum PENDING/RUNNING/CANCELLED/ERROR/SUCCESS | `src/textual/worker.py:58898,58857` |
 | Containers | `Horizontal`, `Vertical`, `VerticalScroll` — from `textual.containers` | `src/textual/containers.py:58620,58582,58608` |
 | Left sidebar | CSS `dock: left; width: <n>;` on the sidebar container | example `docs/examples/guide/layout/dock_layout3_sidebar_header.{py,tcss}` (XML 15136/15162) |
+| Pilot testing | `async with App().run_test() as pilot:` — `pilot.click(selector)`, `pilot.press(key)`, `pilot.pause()`; `app.query_one(...)` to assert state | `src/textual/pilot.py`; Textual testing guide |
+
+> Textual line numbers come from the framework's `main` branch as packed. `pip install
+> textual` gets the latest *release*. All APIs used here are long-stable; on any
+> signature mismatch, trust the installed version (`python -c "import textual,
+> inspect; ..."`) over the XML.
 
 **Copy-ready Textual examples** (inside `.repomix-textual.xml`):
 - `docs/examples/widgets/content_switcher.py` (XML 24544) + `.tcss` (24612) — **the left-tab pattern.**
@@ -116,7 +123,7 @@ Current recipes: `clean convert convert-samples cov demo inspect install opus te
 - `src/textual/widgets/_directory_tree.py` `_load_directory` (XML 49769) — real `@work(thread=True)` doing blocking I/O.
 - `docs/examples/guide/layout/dock_layout3_sidebar_header.{py,tcss}` (XML 15136/15162) — `dock: left` sidebar.
 
-## Anti-patterns — do NOT do these
+## Anti-patterns — do NOT do these (apply to every story)
 
 1. **No left-side tab CSS.** `tab-placement` does not exist in Textual (triple-verified:
    exact grep = 0 hits; case-insensitive = 4 unrelated prose hits; no `placement` CSS
@@ -137,12 +144,13 @@ Current recipes: `clean convert convert-samples cov demo inspect install opus te
 
 ---
 
-# Phase 1 — Recursive batch converter (no Textual)
+## Story 1: Recursive batch converter (no Textual)
 
-**Goal:** `just convert-tree INPUT OUTPUT` recursively converts every `.dtsx` under
-`INPUT` into `.sql` under `OUTPUT`, mirroring the directory structure, using `pathlib`.
+`just convert-tree INPUT OUTPUT` recursively converts every `.dtsx` under `INPUT` into
+`.sql` under `OUTPUT`, mirroring the directory structure, using `pathlib`. No Textual.
+Independently shippable.
 
-## Files
+### Files
 
 - **New:** `ssis2sql/batch.py`
 - **New:** `tests/test_batch.py`
@@ -150,9 +158,9 @@ Current recipes: `clean convert convert-samples cov demo inspect install opus te
 - **Edit:** `justfile` — add a `convert-tree` recipe
 - **Edit:** `tests/test_cli.py` — add a `convert-tree` CLI test
 
-## What to implement
+### What to implement
 
-### 1.1 `ssis2sql/batch.py`
+#### §1.1 `ssis2sql/batch.py`
 
 Before writing: Read `ssis2sql/generator.py:1-60` (for `convert_file`, `ConvertOptions`,
 `ConversionResult`) and `ssis2sql/observability.py` (for the `@logged` decorator usage,
@@ -239,13 +247,14 @@ Notes:
 - Skip-dir check uses `rel.parts` so `examples/.../bin/...` packages are excluded — this
   matches the existing `convert-samples` behaviour.
 
-### 1.2 `convert-tree` CLI subcommand — `ssis2sql/cli.py`
+#### §1.2 `convert-tree` CLI subcommand — `ssis2sql/cli.py`
 
 Read `ssis2sql/cli.py` fully first. **Copy the structure of the existing `convert`
-subparser (`cli.py:27-39`) and its handler `_cmd_convert` (`cli.py:48-67`)** — do not
-invent a new CLI style.
+subparser and its handler `_cmd_convert`** — do not invent a new CLI style. (Verify the
+exact line numbers against the live file; the Reference cites `cli.py:14-45` for argparse
+setup, but confirm before relying on it.)
 
-- Add `from .batch import convert_tree` to the imports (alongside `cli.py:9`).
+- Add `from .batch import convert_tree` to the imports.
 - Add a third subparser:
   ```python
   tree = sub.add_parser(
@@ -259,13 +268,12 @@ invent a new CLI style.
   tree.add_argument("-v", "--verbose", action="count", default=0)
   ```
 - Add `_cmd_convert_tree(args)` modelled on `_cmd_convert`: build `ConvertOptions` the
-  same way `_cmd_convert` does (`cli.py:48-67`), call
-  `convert_tree(Path(args.input), Path(args.output), options)`, print one line per file
-  plus a final summary (`converted N, failed M`), and **return exit code 1 if
-  `result.failed > 0`, else 0**.
+  same way `_cmd_convert` does, call `convert_tree(Path(args.input), Path(args.output),
+  options)`, print one line per file plus a final summary (`converted N, failed M`), and
+  **return exit code 1 if `result.failed > 0`, else 0**.
 - Route `"convert-tree"` to `_cmd_convert_tree` in `main()`'s dispatch.
 
-### 1.3 `justfile` recipe
+#### §1.3 `justfile` recipe
 
 Add after the `convert-samples` recipe:
 ```
@@ -275,73 +283,86 @@ convert-tree INPUT OUTPUT:
     .venv/bin/python -m ssis2sql convert-tree {{INPUT}} {{OUTPUT}}
 ```
 
-### 1.4 Tests — `tests/test_batch.py`
+#### §1.4 Tests — `tests/test_batch.py`
 
-Use `tmp_path` and the `examples/` packages as known-good inputs (the `conftest.py`
-`example_path` fixture points at `examples/sales_etl.dtsx`). Cover:
-- **Mirroring:** build a nested input dir (`a/b/pkg.dtsx`), run `convert_tree`, assert
-  `output/a/b/pkg.sql` exists and is non-empty.
-- **Skip dirs:** a `.dtsx` under a `bin/` subdir is not converted.
-- **Bad input:** `convert_tree("/no/such/dir", out)` raises `NotADirectoryError`.
-- **Empty tree:** an input dir with no `.dtsx` returns `BatchResult` with `converted == 0`.
-- **Failure isolation:** an invalid `.dtsx` (write garbage XML) is recorded as a failed
-  `FileOutcome` while a sibling valid package still converts.
+Use `tmp_path` and the `examples/` packages as known-good inputs (the repo-root
+`conftest.py` `example_path` fixture points at `examples/sales_etl.dtsx`).
 
 Add one `convert-tree` test to `tests/test_cli.py` mirroring the existing CLI tests.
 
-## Verification checklist — Phase 1
+### Acceptance Criteria
 
-- [ ] `just install` then `just test` — all tests pass, including `test_batch.py`.
-- [ ] `just convert-tree examples /tmp/ssis-out` runs; `/tmp/ssis-out` mirrors the
-      `examples/` tree with `.sql` files; the summary line reports the count.
-- [ ] Output directory structure exactly mirrors input subdirectories.
-- [ ] `python -m py_compile ssis2sql/batch.py ssis2sql/cli.py` — no syntax errors.
-- [ ] `just cov` — coverage of `ssis2sql/batch.py` is reported and not noticeably
-      dragging the overall number down.
+- `convert_tree(input_root, output_root)` recursively converts every `.dtsx` under
+  `input_root` into `.sql` under `output_root`, mirroring directory structure: a nested
+  input `a/b/pkg.dtsx` produces a non-empty `output/a/b/pkg.sql`.
+- `.dtsx` files nested under a `bin/` or `obj/` directory are skipped — not converted and
+  not present in the output tree.
+- `convert_tree` called with a non-existent input directory raises `NotADirectoryError`.
+- `convert_tree` on an input directory containing no `.dtsx` files returns a `BatchResult`
+  whose `converted` is `0` and `failed` is `0`.
+- A malformed `.dtsx` (garbage XML) is recorded as a failed `FileOutcome` (`ok is False`,
+  `error` is a non-empty string) and does not abort the run — a sibling valid package in
+  the same tree still converts successfully.
+- `convert_tree` accepts `str` and `pathlib.Path` for both `input_root` and `output_root`.
+- The `ssis2sql convert-tree <input> <output>` CLI subcommand converts a tree, prints one
+  line per file and a final `converted N, failed M` summary, exits `1` when any file
+  failed and `0` otherwise.
+- `just convert-tree INPUT OUTPUT` runs the `convert-tree` CLI subcommand against a real
+  example tree and writes the mirrored `.sql` output.
 
-## Anti-pattern guards — Phase 1
+### Definition of Done
 
-- `grep -n "find " justfile` — the new `convert-tree` recipe must **not** use bash
-  `find`; the recursion is in `batch.py`.
-- `grep -n "\.sql\b" ssis2sql/batch.py` — output paths come from `with_suffix(".sql")`,
-  not string concatenation.
-- No new conversion logic — `grep -n "convert_file" ssis2sql/batch.py` must show
-  `batch.py` *calling* `convert_file`, not reimplementing it.
-- `convert_tree` must accept `str | Path` and coerce with `Path(...)`.
+- `ssis2sql/batch.py` exists with `convert_tree`, `BatchResult`, `FileOutcome`; recursion
+  is `pathlib.Path.rglob` — `grep -n "rglob" ssis2sql/batch.py` matches, no bash `find`.
+- `convert_tree` reuses `ssis2sql.generator.convert_file` — `grep -n "convert_file"
+  ssis2sql/batch.py` shows it being *called*, not reimplemented. No new conversion logic.
+- Output paths derive from `with_suffix(".sql")`, not string concatenation.
+- `ssis2sql/cli.py` has a `convert-tree` subparser modelled on the existing `convert`
+  subparser; `main()` routes `"convert-tree"` to its handler.
+- `justfile` has a `convert-tree` recipe; `grep -n "find " justfile` shows the new recipe
+  is **not** among the matches.
+- `tests/test_batch.py` covers every Acceptance Criterion; `tests/test_cli.py` has a new
+  `convert-tree` test.
+- `python -m py_compile ssis2sql/batch.py ssis2sql/cli.py` — no syntax errors.
+- `just test` is green (no regressions); line coverage of `ssis2sql/batch.py` is ≥ 80%.
+- `just convert-tree examples /tmp/ssis-verify` mirrors the `examples/` tree as `.sql`
+  files; the summary line reports the count; `bin/`-nested packages are skipped.
 
 ---
 
-# Phase 2 — Textual TUI scaffold + generic recipe runner
+## Story 2: Textual TUI scaffold + generic recipe runner
 
-**Goal:** `just tui` launches a Textual app: a left sidebar of buttons (one per
-non-excluded `justfile` recipe) and a right-hand `ContentSwitcher`. Each pane shows the
-recipe's doc, a **Run** button, and a `Log`. Pressing **Run** executes `just <recipe>`
-as a subprocess and streams its output into the `Log`. This phase handles the
-**parameter-less** recipes (`install`, `test`, `cov`, `demo`, `convert-samples`,
-`clean`); argful recipes (`convert`, `inspect`, `convert-tree`) get a basic
-text-`Input` fallback now and proper pickers in Phase 3.
+`just tui` launches a Textual app: a left sidebar of buttons (one per non-excluded
+`justfile` recipe) and a right-hand `ContentSwitcher`. Each pane shows the recipe's doc,
+a **Run** button, and a `Log`. Pressing **Run** executes `just <recipe>` as a subprocess
+and streams its output into the `Log`. This story handles the **parameter-less** recipes
+(`install`, `test`, `cov`, `demo`, `convert-samples`, `clean`); argful recipes
+(`convert`, `inspect`, `convert-tree`) get a plain text-`Input` fallback now and proper
+`DirectoryTree` pickers in Story 3.
 
-## Files
+### Files
 
-- **Edit:** `pyproject.toml` — add `textual` to `[project] dependencies`
+- **Edit:** `pyproject.toml` — add `textual` to `[project] dependencies`; add
+  `pytest-asyncio` to `[project.optional-dependencies] dev`; set `asyncio_mode` in
+  `[tool.pytest.ini_options]`
 - **New:** `ssis2sql/tui.py`
 - **Edit:** `justfile` — add a `tui` recipe
-- **New (optional):** `tests/test_tui.py` — unit tests for the pure helper functions
+- **New:** `tests/test_tui.py` — pure-helper unit tests **and** Textual pilot tests
 
-## What to implement
+### What to implement
 
-### 2.1 Add the dependency — `pyproject.toml`
+#### §2.1 Dependencies — `pyproject.toml`
 
-Change line 14 from `dependencies = ["loguru>=0.7"]` to include `textual`. Run
-`pip install textual` inside `.venv`, then `pip show textual` to read the installed
-version, and pin to that minor, e.g.:
-```toml
-dependencies = ["loguru>=0.7", "textual>=1.0"]
-```
-Then re-run `just install`. (All Textual APIs cited here are stable well before 1.0, so
-any modern release works — pin to whatever `pip` resolves.)
+- Add `textual` to `[project] dependencies` (currently `["loguru>=0.7"]`). Run
+  `pip install textual` inside `.venv`, then `pip show textual` to read the installed
+  version, and pin to that minor — e.g. `dependencies = ["loguru>=0.7", "textual>=1.0"]`.
+- Add `pytest-asyncio` to `[project.optional-dependencies] dev` (currently
+  `["pytest>=7.0", "pytest-cov>=4.0"]`).
+- In `[tool.pytest.ini_options]` set `asyncio_mode = "auto"` so `async def test_*`
+  functions run without a per-test marker.
+- Re-run `just install`.
 
-### 2.2 `ssis2sql/tui.py`
+#### §2.2 `ssis2sql/tui.py`
 
 Read these from `.repomix-textual.xml` before writing:
 - `docs/examples/widgets/content_switcher.py` (XML 24544) + `.tcss` (24612) — the
@@ -351,8 +372,7 @@ Read these from `.repomix-textual.xml` before writing:
   `call_from_thread`.
 - `src/textual/widgets/_directory_tree.py:49769` — a real `@work(thread=True)` worker.
 
-**Pure helper functions** (keep these module-level and side-effect-free so they can be
-unit-tested without launching the app):
+**Pure helper functions** (module-level, side-effect-free, unit-testable without the app):
 
 ```python
 from __future__ import annotations
@@ -448,11 +468,8 @@ class Ssis2SqlTUI(App):
         yield Footer()
 
     def _build_pane(self, recipe: Recipe):
-        # Phase 2: generic pane. Phase 3 replaces the panes for
+        # Story 2: generic pane. Story 3 replaces the panes for
         # convert / inspect / convert-tree with DirectoryTree pickers.
-        pane = VerticalScroll(id=f"pane-{_slug(recipe.name)}")
-        # Children are mounted in on_mount or composed via a custom widget;
-        # simplest: yield a custom container. See note below.
         ...
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -466,7 +483,7 @@ class Ssis2SqlTUI(App):
     def _launch(self, recipe: str) -> None:
         log = self.query_one(f"#log-{_slug(recipe)}", Log)
         log.clear()
-        # Phase 3: collect args from the pane's Input/DirectoryTree widgets.
+        # Story 3: collect args from the pane's Input/DirectoryTree widgets.
         self._run_recipe(recipe, [], log)
 
     @work(thread=True, exclusive=True, group="recipe-run")
@@ -509,10 +526,10 @@ Implementation notes:
 - `exclusive=True, group="recipe-run"` means starting a new run cancels any in-flight
   run — acceptable; optionally also disable Run buttons while a worker is RUNNING using
   an `on_worker_state_changed` handler (pattern: `weather04.py`, XML 18474).
-- For argful recipes in this phase, add a plain `Input(id=f"arg-{name}")` to the pane
-  and pass `[input.value]` (or split on spaces) as `args`. Phase 3 supersedes this.
+- For argful recipes in this story, add a plain `Input(id=f"arg-{name}")` to the pane and
+  pass `[input.value]` (or split on spaces) as `args`. Story 3 supersedes this.
 
-### 2.3 `justfile` recipe
+#### §2.3 `justfile` recipe
 
 ```
 # Launch the Textual control-panel UI for ssis2sql.
@@ -520,54 +537,80 @@ tui:
     .venv/bin/python -m ssis2sql.tui
 ```
 
-### 2.4 Optional tests — `tests/test_tui.py`
+#### §2.4 Tests — `tests/test_tui.py`
 
-Unit-test the pure helpers (no app, no async needed):
-- `find_repo_root(Path(__file__))` returns the repo root (the dir with `justfile`).
-- `discover_recipes(repo_root)` returns a non-empty list, **excludes `opus` and `tui`**,
-  and includes `convert-tree` once Phase 1 is merged.
+**Pure helpers** (no app, synchronous):
+- `find_repo_root(Path(__file__))` returns the repo root (the dir with `justfile`);
+  `find_repo_root` on a path with no justfile ancestor raises `FileNotFoundError`.
+- `discover_recipes(repo_root)` returns a non-empty list, excludes `opus` and `tui`, and
+  includes `convert-tree` (Story 1 is merged first).
 - Feed `discover_recipes` a captured `just --dump --dump-format json` string (monkeypatch
-  `subprocess.run`) and assert the `Recipe.params` list for `convert` is `["FILE"]`.
+  `subprocess.run`) and assert `Recipe.params` for `convert` is `["FILE"]`.
 
-Full Textual pilot tests (`App.run_test()`) are async and would need `pytest-asyncio`;
-treat them as an optional stretch, not a phase gate.
+**Pilot tests** (`async def`, `App.run_test()` — required for the coverage gate):
+- The app composes: one sidebar `Button` per non-excluded recipe; no button for `opus`
+  or `tui`.
+- Clicking a sidebar button sets `query_one(ContentSwitcher).current` to that pane's id.
+- Running a fast paramless recipe streams output into the pane's `Log` and the worker
+  reaches a terminal state. Keep the test hermetic: monkeypatch `subprocess.Popen` (or
+  target a trivial recipe) so the pilot test does not depend on a real `just` build.
+- `q` exits the app.
 
-## Verification checklist — Phase 2
+### Acceptance Criteria
 
-- [ ] `just install` succeeds and installs `textual` (`pip show textual` confirms).
-- [ ] `just tui` launches; the sidebar shows one button per recipe **except** `opus`
-      and `tui`.
-- [ ] Clicking a sidebar button switches the right-hand pane (`ContentSwitcher.current`).
-- [ ] In the `demo` pane, **Run** streams `ssis2sql` output into the `Log` and ends with
-      an `[exit 0]` line.
-- [ ] In the `test` pane, **Run** streams pytest output live (UI does not freeze).
-- [ ] `q` quits.
-- [ ] `python -m py_compile ssis2sql/tui.py` — no syntax errors.
-- [ ] `just test` still green (no regressions).
+- `just tui` launches the Textual app without raising.
+- The sidebar shows exactly one button per non-excluded `justfile` recipe; there is no
+  button for `opus` and none for `tui`.
+- Clicking a sidebar button switches the right-hand `ContentSwitcher` to the matching
+  pane (`ContentSwitcher.current` changes to the pane id).
+- A parameter-less recipe pane (`demo`) has a **Run** button that executes the recipe as
+  a subprocess and streams its output into the pane's `Log`, ending with an `[exit <code>]`
+  line.
+- The `test` pane streams output incrementally while the recipe runs — the UI does not
+  freeze for the duration.
+- Pressing `q` quits the app.
+- `find_repo_root(start)` returns the nearest ancestor of `start` containing a `justfile`,
+  and raises `FileNotFoundError` when no ancestor has one.
+- `discover_recipes(repo_root)` parses `just --dump --dump-format json` into a sorted
+  `Recipe` list that excludes private recipes, `opus`, and `tui`, with `Recipe.params`
+  populated from each recipe's parameters.
 
-## Anti-pattern guards — Phase 2
+### Definition of Done
 
-- `grep -n "tab-placement\|TabbedContent" ssis2sql/tui.py` — must be **empty**; the
-  left tabs are `ContentSwitcher` + `dock: left`.
-- `grep -n "call_from_thread" ssis2sql/tui.py` — every `log.write_line` / widget
-  mutation inside `_run_recipe` must go through `call_from_thread`.
-- `grep -n "@work" ssis2sql/tui.py` — `_run_recipe` must be `@work(thread=True, ...)`.
-- `grep -n "RichLog" ssis2sql/tui.py` — must be empty (this plan uses `Log`).
-- The core CLI must stay Textual-free: `grep -rn "import textual" ssis2sql/cli.py
-  ssis2sql/__init__.py ssis2sql/generator.py` — must be empty.
+- `pyproject.toml`: `[project] dependencies` includes `textual` pinned to the installed
+  minor; `[project.optional-dependencies] dev` includes `pytest-asyncio`;
+  `[tool.pytest.ini_options]` sets `asyncio_mode = "auto"`. `just install` succeeds and
+  `pip show textual` confirms install.
+- `ssis2sql/tui.py` exists with `find_repo_root`, `discover_recipes`, `Recipe`, and the
+  `Ssis2SqlTUI` app; `main()` runs it; `python -m ssis2sql.tui` is the entry point.
+- Left navigation is `ContentSwitcher` + `dock: left` — `grep -n
+  "tab-placement\|TabbedContent" ssis2sql/tui.py` is empty.
+- `_run_recipe` is a `@work(thread=True, ...)` worker; every widget mutation inside it is
+  wrapped in `call_from_thread` — `grep -n "call_from_thread" ssis2sql/tui.py` covers
+  each `log.write_line` in the worker.
+- The log widget is `Log`, not `RichLog` — `grep -n "RichLog" ssis2sql/tui.py` is empty.
+- The core CLI stays Textual-free — `grep -rn "import textual" ssis2sql/cli.py
+  ssis2sql/__init__.py ssis2sql/generator.py` is empty.
+- `justfile` has a `tui` recipe.
+- `tests/test_tui.py` exists with the pure-helper unit tests **and** Textual pilot tests
+  covering compose, sidebar navigation, and the recipe runner.
+- `python -m py_compile ssis2sql/tui.py` — no syntax errors.
+- `just test` is green including the Story 1 tests (no regressions); line coverage of
+  `ssis2sql/tui.py` is ≥ 80%.
 
 ---
 
-# Phase 3 — DirectoryTree picker panes
+## Story 3: DirectoryTree picker panes
 
-**Goal:** Replace the generic panes for `convert-tree`, `convert`, and `inspect` with
+Replace the generic panes for `convert-tree`, `convert`, and `inspect` with
 `DirectoryTree`-driven panes so the user picks paths visually.
 
-## Files
+### Files
 
 - **Edit:** `ssis2sql/tui.py`
+- **Edit:** `tests/test_tui.py` — pilot tests for the picker panes
 
-## What to implement
+### What to implement
 
 Read from `.repomix-textual.xml` before writing:
 - `docs/examples/widgets/directory_tree.py` (XML 24961).
@@ -575,7 +618,7 @@ Read from `.repomix-textual.xml` before writing:
 - `src/textual/widgets/_directory_tree.py:49358-49408` — `FileSelected` / `DirectorySelected`
   attributes; `:49408,49618` — re-rooting via `tree.path = ...`.
 
-### 3.1 `convert-tree` pane (the primary feature)
+#### §3.1 `convert-tree` pane (the primary feature)
 
 Layout, top to bottom:
 1. `Input(id="ct-input-path", placeholder="Input parent directory…")` — **source of
@@ -601,19 +644,18 @@ Handlers:
   ```
   `event.path` is a `pathlib.Path`.
 - `on_input_submitted(event)` — when the user types a path and presses Enter, **re-root
-  the matching tree**: `self.query_one("#ct-input-tree", DirectoryTree).path = Path(value)`
-  (the `path` reactive triggers a reload — verified, `_directory_tree.py:49618`). Guard
-  with `Path(value).is_dir()`.
+  the matching tree**: `self.query_one("#ct-input-tree", DirectoryTree).path =
+  Path(value)` (the `path` reactive triggers a reload). Guard with `Path(value).is_dir()`.
 - The `run-convert-tree` branch in `on_button_pressed` reads both `Input.value`s and
   calls `self._run_recipe("convert-tree", [in_path, out_path], log)`. Validate both are
   non-empty and the input path exists; otherwise write an error line to the `Log` and do
   not launch.
 
 This satisfies the requirement literally: input and output paths are both chosen via a
-`DirectoryTree`, the `Input` lets the user *specify* an exact path, and the recipe
-called is the `just convert-tree` recipe from Phase 1.
+`DirectoryTree`, the `Input` lets the user *specify* an exact path, and the recipe called
+is the `just convert-tree` recipe from Story 1.
 
-### 3.2 `convert` and `inspect` panes
+#### §3.2 `convert` and `inspect` panes
 
 These recipes take a single `FILE` (a `.dtsx`). Add a filtered directory tree:
 
@@ -631,75 +673,59 @@ Pane layout: `Input(id=f"file-{recipe}")` + `DtsxTree(Path.home(), id=f"tree-{re
 + Run button + `Log`. `on_directory_tree_file_selected` writes `event.path` into the
 matching `Input`; Run passes `[input.value]` as the arg.
 
-### 3.3 Wire-up
+#### §3.3 Wire-up
 
-Extend `_build_pane` (or the pane classes) to branch on `recipe.name`:
-`convert-tree` → §3.1 pane; `convert`/`inspect` → §3.2 pane; everything else → the
-Phase-2 generic pane.
+Extend `_build_pane` (or the pane classes) to branch on `recipe.name`: `convert-tree` →
+§3.1 pane; `convert`/`inspect` → §3.2 pane; everything else → the Story-2 generic pane.
 
-## Verification checklist — Phase 3
+#### §3.4 Tests — `tests/test_tui.py`
 
-- [ ] `just tui` → `convert-tree` pane shows two `DirectoryTree`s and two `Input`s.
-- [ ] Selecting a directory in the input tree fills the input `Input`; same for output.
-- [ ] Typing a valid path into an `Input` + Enter re-roots that tree.
-- [ ] **Convert tree** runs `just convert-tree <input> <output>`; output streams to the
-      `Log`; `<output>` afterwards mirrors `<input>`'s `.dtsx` layout as `.sql` files.
-- [ ] `convert` / `inspect` panes: the tree shows only folders and `.dtsx` files;
-      selecting one fills the `Input`; **Run** converts/inspects that file.
-- [ ] Empty / invalid path → a clear error line in the `Log`, no crash.
-- [ ] `just test` still green.
+Extend with pilot tests:
+- Selecting a directory in `ct-input-tree` fills `ct-input-path`; selecting in
+  `ct-output-tree` fills `ct-output-path` (drive via the message handler / a synthetic
+  `DirectorySelected`, or `pilot` interaction over a `tmp_path` tree).
+- Submitting a valid path into `ct-input-path` re-roots `ct-input-tree`
+  (`tree.path == Path(value)`).
+- Pressing **Convert tree** with an empty or non-existent input path writes an error
+  line to the `Log` and does **not** start the recipe worker.
+- The `convert` pane's `DtsxTree.filter_paths` keeps directories and `.dtsx` files and
+  drops other files.
 
-## Anti-pattern guards — Phase 3
+### Acceptance Criteria
 
-- `grep -n "FileSelected\|DirectorySelected" ssis2sql/tui.py` — handlers use the exact
-  message classes; do not invent e.g. `PathSelected`.
-- The two `DirectoryTree`s must be distinguished by `event.control.id`, not by widget
+- The `convert-tree` pane shows two `DirectoryTree` widgets and two `Input` widgets — one
+  pair for the input root, one for the output root.
+- Selecting a directory in the input tree fills the input `Input`; selecting a directory
+  in the output tree fills the output `Input`; the two trees are distinguished by
+  `event.control.id`.
+- Typing a valid directory path into an `Input` and pressing Enter re-roots the matching
+  `DirectoryTree` (its `path` reactive is reassigned).
+- Pressing **Convert tree** with valid input and output paths runs `just convert-tree
+  <input> <output>`; output streams to the `Log`; afterwards `<output>` mirrors
+  `<input>`'s `.dtsx` layout as `.sql` files.
+- The `convert` and `inspect` panes each show a `DirectoryTree` filtered to directories
+  and `.dtsx` files only; selecting a `.dtsx` fills the pane's `Input`; **Run** invokes
+  the recipe on that file.
+- An empty or invalid path produces a clear error line in the `Log` and does not crash
+  the app or launch the recipe.
+
+### Definition of Done
+
+- `ssis2sql/tui.py` updated: the `convert-tree` pane per §3.1, the `convert`/`inspect`
+  panes per §3.2, `_build_pane` branching on `recipe.name` per §3.3.
+- A `DtsxTree(DirectoryTree)` subclass overrides `filter_paths` — it is a method override
+  on the subclass, not a constructor kwarg.
+- Handlers use the exact message classes `DirectoryTree.FileSelected` and
+  `DirectoryTree.DirectorySelected` — `grep -n "FileSelected\|DirectorySelected"
+  ssis2sql/tui.py` confirms; no invented message names.
+- Re-rooting assigns `tree.path = Path(...)` — no call to a non-existent `set_path()`.
+- The two `convert-tree` trees are distinguished by `event.control.id`, not by widget
   order or a guessed attribute.
-- Re-rooting uses `tree.path = Path(...)` — do not call a non-existent `set_path()`.
-- `filter_paths` must be an **override on a `DirectoryTree` subclass**, not a kwarg.
-
----
-
-# Phase 4 — Verification
-
-**Goal:** Prove the whole feature works and matches the documented APIs.
-
-## Steps
-
-1. **Clean build:** `just clean && just install` — `.venv` rebuilt, `textual` installed.
-2. **Test suite:** `just test` — all pass, including `tests/test_batch.py` and the new
-   CLI test. `just cov` — coverage report; `batch.py` covered, overall not regressed.
-3. **Compile check:** `python -m py_compile ssis2sql/batch.py ssis2sql/cli.py ssis2sql/tui.py`.
-4. **Batch smoke test:**
-   `just convert-tree examples /tmp/ssis-verify` — confirm `/tmp/ssis-verify` mirrors the
-   `examples/` directory tree with `.sql` files; the summary line reports the count;
-   `bin/`-nested packages are skipped.
-5. **TUI smoke test:** `just tui` —
-   - sidebar has a button for every recipe except `opus` and `tui`;
-   - switching panes works;
-   - a paramless recipe (`demo`) runs and streams output;
-   - the `convert-tree` pane: pick input + output dirs via the trees, Convert, confirm
-     the `.sql` tree appears;
-   - `convert` pane: pick a `.dtsx`, Run, confirm SQL in the log;
-   - `q` quits cleanly.
-6. **Anti-pattern grep sweep** (all must return nothing / only intended hits):
-   - `grep -rn "tab-placement" ssis2sql/` → empty.
-   - `grep -rn "import textual" ssis2sql/cli.py ssis2sql/generator.py ssis2sql/__init__.py` → empty.
-   - `grep -n "find " justfile` → only pre-existing `convert-samples` / `clean` lines,
-     **not** the new `convert-tree` recipe.
-   - In `ssis2sql/tui.py`: every widget mutation inside `_run_recipe` is wrapped in
-     `call_from_thread`; `_run_recipe` is `@work(thread=True, ...)`.
-7. **API conformance:** spot-check each Textual API used in `tui.py` against the cited
-   `.repomix-textual.xml` lines in Phase 0 — no invented methods, no undocumented kwargs.
-
-## Definition of done
-
-- `just convert-tree IN OUT` recursively converts `.dtsx`→`.sql`, mirroring structure,
-  via `pathlib`.
-- `just tui` opens a Textual control panel with a left button per recipe; each runs its
-  recipe and streams output; the `convert-tree` pane drives the conversion through
-  `DirectoryTree` pickers.
-- All tests green; no regressions; no anti-patterns present.
+- `tests/test_tui.py` extended with pilot tests for the picker panes (selection fills the
+  `Input`, re-root on submit, invalid-path error line, `filter_paths` behaviour).
+- `python -m py_compile ssis2sql/tui.py` — no syntax errors.
+- `just test` is green (no regressions); line coverage of `ssis2sql/tui.py` is ≥ 80%
+  including the Story 3 additions.
 
 ---
 
@@ -708,18 +734,20 @@ Phase-2 generic pane.
 - **`clean` button is destructive** — it deletes `.venv`, and the TUI itself runs from
   `.venv/bin/python` (via `just tui`). Running `clean` from the TUI removes the
   interpreter's environment out from under it. Mitigation options (implementer's call):
-  give the `clean` pane a confirm step, or simply document it in the pane's description
-  text. Not a phase blocker.
+  give the `clean` pane a confirm step, or document it in the pane's description text.
+  Not a story blocker.
 - **`textual` version drift** — the API citations come from Textual's `main` branch as
   packed into `.repomix-textual.xml`. `pip install textual` gets the latest *release*.
   All APIs used here (`DirectoryTree`, `ContentSwitcher`, `@work`, `Log`, `Button`,
-  `Input`) are long-stable, but if a signature mismatch appears, trust the installed
-  version (`python -c "import textual, inspect; ..."`) over the XML.
+  `Input`, `App.run_test`) are long-stable, but on any signature mismatch, trust the
+  installed version (`python -c "import textual, inspect; ..."`) over the XML.
 - **`run_worker` signature** was not in the packed XML — this plan deliberately uses the
   `@work` decorator only. If a later need arises for `run_worker`, re-run repomix with
   `src/textual/dom.py` added to `--include`.
-- **`DirectoryTree` cannot navigate above its root.** The `Input`-field + re-root
-  pattern in Phase 3.1 is what gives the user access to arbitrary paths; do not drop it.
-- **TUI pilot tests need async** (`pytest-asyncio`). Kept optional so the existing plain
-  pytest setup is untouched; the pure helpers (`find_repo_root`, `discover_recipes`) are
-  the testable core.
+- **`DirectoryTree` cannot navigate above its root.** The `Input`-field + re-root pattern
+  in §3.1 is what gives the user access to arbitrary paths; do not drop it.
+- **TUI pilot tests need `pytest-asyncio`.** This is now a committed dependency (Story 2
+  §2.1), not an optional stretch — the sprint's 80% coverage gate cannot be met on
+  `tui.py` from the pure helpers alone. Pilot tests must be hermetic: monkeypatch
+  `subprocess.Popen` / `subprocess.run` so they neither launch real builds nor depend on
+  a populated `.venv`.
