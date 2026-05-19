@@ -11,10 +11,10 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Linus McManamey" }]
 keywords = ["ssis", "dtsx", "etl", "t-sql", "sql-server", "transpiler"]
-dependencies = ["loguru>=0.7"]
+dependencies = ["loguru>=0.7", "textual>=8.2"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0", "pytest-asyncio>=1.3"]
 
 [project.scripts]
 ssis2sql = "ssis2sql.cli:main"
@@ -25,6 +25,7 @@ include = ["ssis2sql*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+asyncio_mode = "auto"
 
 [tool.coverage.run]
 source = ["ssis2sql"]
