@@ -24,6 +24,15 @@ _VALIDATION_LAYERS = (
     ("validate", "Differential"),
 )
 
+_MIGRATION_RECIPES = frozenset(
+    {"convert", "convert-samples", "convert-tree", "demo", "inspect"}
+)
+_VALIDATION_TAB_RECIPES = frozenset({"validate-cov"})  # plus synthetic "validation"
+# (tab id suffix, tab title) in display order.
+_TABS = (("migration", "Migration"),
+         ("validation", "Validation"),
+         ("configuration", "Configuration"))
+
 
 @dataclass
 class Recipe:
@@ -69,7 +78,7 @@ def discover_recipes(repo_root: Path) -> list[Recipe]:
 
 from textual import work  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
-from textual.containers import Horizontal, Vertical, VerticalScroll  # noqa: E402
+from textual.containers import Horizontal, VerticalScroll  # noqa: E402
 from textual.widgets import (  # noqa: E402
     Button,
     ContentSwitcher,
@@ -79,6 +88,8 @@ from textual.widgets import (  # noqa: E402
     Input,
     Log,
     Static,
+    TabbedContent,
+    TabPane,
 )
 from textual.worker import get_current_worker  # noqa: E402
 
@@ -107,6 +118,42 @@ def parse_pytest_summary(lines: list[str]) -> str:
             counts[kind.rstrip("s") if kind == "errors" else kind] = int(number)
     parts = [f"{counts[k]} {k}" for k in _SUMMARY_ORDER if k in counts]
     return " · ".join(parts) if parts else "no test summary found"
+
+
+# ---------------------------------------------------------------------------
+# .env helpers — read/write the MSSQL_* connection settings.
+# ---------------------------------------------------------------------------
+
+_MSSQL_KEYS = (
+    "MSSQL_SERVER_ADDRESS",
+    "MSSQL_SERVER_PORT",
+    "MSSQL_SA_USERNAME",
+    "MSSQL_SA_PASSWORD",
+)
+
+
+def read_env(path: Path) -> dict[str, str]:
+    """Parse a KEY=VALUE .env file. Missing file → empty dict.
+
+    Blank lines and ``#`` comments are skipped; only the first ``=`` splits.
+    """
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        values[key.strip()] = val.strip()
+    return values
+
+
+def write_env(path: Path, values: dict[str, str]) -> None:
+    """Write the four MSSQL_* keys as KEY=VALUE lines (others dropped)."""
+    lines = ["# MSSQL connection parameters for the validation framework."]
+    lines += [f"{k}={values.get(k, '')}" for k in _MSSQL_KEYS]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -195,6 +242,30 @@ class ValidationPane(VerticalScroll):
         yield Log(id="log-validation")
 
 
+class ConfigPane(VerticalScroll):
+    """Configuration pane: edit the .env MSSQL connection settings."""
+
+    def __init__(self, recipe: Recipe, repo_root: Path) -> None:
+        super().__init__(id="pane-config")
+        self._recipe = recipe
+        self._env_path = repo_root / ".env"
+
+    def compose(self) -> ComposeResult:
+        values = read_env(self._env_path)
+        yield Static("Edit the SQL Server connection used by the differential "
+                     "validation layer. Saved to .env (gitignored).",
+                     classes="pane-desc")
+        for key in _MSSQL_KEYS:
+            yield Static(key, classes="config-label")
+            yield Input(
+                value=values.get(key, ""),
+                id=f"cfg-{key}",
+                password=key.endswith("PASSWORD"),
+            )
+        yield Button("Save", id="run-config-save", variant="primary")
+        yield Static("", id="config-status")
+
+
 # ---------------------------------------------------------------------------
 # App.
 # ---------------------------------------------------------------------------
@@ -203,9 +274,11 @@ class Ssis2SqlTUI(App):
     """Textual control-panel: sidebar of recipe buttons + right-hand content switcher."""
 
     CSS = """
-    #sidebar { dock: left; width: 28; background: $panel; }
-    #sidebar Button { width: 100%; margin: 0 0 1 0; }
-    #content { width: 1fr; padding: 1 2; }
+    .tab-sidebar { dock: left; width: 28; background: $panel; }
+    .tab-sidebar Button { width: 100%; margin: 0 0 1 0; }
+    .tab-content { width: 1fr; padding: 1 2; }
+    .config-label { color: $text-muted; margin: 1 0 0 0; }
+    #config-status { margin: 1 0; color: $text-muted; }
     .pane-desc { color: $text-muted; margin-bottom: 1; }
     Log { height: 1fr; border: round $primary; }
     #validation-buttons { height: auto; }
@@ -219,25 +292,48 @@ class Ssis2SqlTUI(App):
         self._repo_root = find_repo_root(Path(__file__).resolve())
         recipes = discover_recipes(self._repo_root)
         recipes = [r for r in recipes if r.name not in _VALIDATION_LAYER_RECIPES]
-        self._recipes = [
-            *recipes,
-            Recipe(name="validation", doc="Run the ssis2sql validation framework."),
-        ]
+        self._tab_recipes: dict[str, list[Recipe]] = {
+            "migration": [], "validation": [], "configuration": [],
+        }
+        for r in recipes:                       # discovered, layer recipes already removed
+            if r.name in _MIGRATION_RECIPES:
+                self._tab_recipes["migration"].append(r)
+            elif r.name in _VALIDATION_TAB_RECIPES:
+                self._tab_recipes["validation"].append(r)
+            else:
+                self._tab_recipes["configuration"].append(r)
+        # Synthetic panes, first in their tab.
+        self._tab_recipes["validation"].insert(
+            0, Recipe(name="validation", doc="Run the ssis2sql validation framework."))
+        self._tab_recipes["configuration"].insert(
+            0, Recipe(name="config", doc="Edit the .env SQL Server settings."))
+        # recipe name -> tab id, for nav routing.
+        self._tab_of = {r.name: tab
+                        for tab, rs in self._tab_recipes.items() for r in rs}
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Horizontal():
-            with Vertical(id="sidebar"):
-                for r in self._recipes:
-                    yield Button(r.name, id=f"nav-{_slug(r.name)}")
-            initial = f"pane-{_slug(self._recipes[0].name)}" if self._recipes else None
-            with ContentSwitcher(id="content", initial=initial):
-                for r in self._recipes:
-                    yield self._build_pane(r)
+        with TabbedContent(initial="tab-migration"):
+            for tab, title in _TABS:
+                with TabPane(title, id=f"tab-{tab}"):
+                    recipes = self._tab_recipes[tab]
+                    with Horizontal():
+                        with VerticalScroll(classes="tab-sidebar"):
+                            for r in recipes:
+                                yield Button(r.name if r.name not in ("validation", "config")
+                                             else title,
+                                             id=f"nav-{_slug(r.name)}")
+                        initial = f"pane-{_slug(recipes[0].name)}" if recipes else None
+                        with ContentSwitcher(id=f"content-{tab}", classes="tab-content",
+                                             initial=initial):
+                            for r in recipes:
+                                yield self._build_pane(r)
         yield Footer()
 
     def _build_pane(self, recipe: Recipe) -> VerticalScroll:
         """Return the appropriate pane widget for a recipe."""
+        if recipe.name == "config":
+            return ConfigPane(recipe, self._repo_root)
         if recipe.name == "validation":
             return ValidationPane(recipe)
         if recipe.name == "convert-tree":
@@ -247,13 +343,31 @@ class Ssis2SqlTUI(App):
         return RecipePane(recipe)
 
     # ------------------------------------------------------------------
+    # Configuration pane — write the .env settings.
+    # ------------------------------------------------------------------
+
+    def _save_config(self) -> None:
+        values = {k: self.query_one(f"#cfg-{k}", Input).value.strip()
+                  for k in _MSSQL_KEYS}
+        write_env(self._repo_root / ".env", values)
+        self.query_one("#config-status", Static).update(
+            f"saved → {self._repo_root / '.env'}")
+
+    # ------------------------------------------------------------------
     # Button routing.
     # ------------------------------------------------------------------
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         bid = event.button.id or ""
         if bid.startswith("nav-"):
-            self.query_one(ContentSwitcher).current = f"pane-{bid[len('nav-'):]}"
+            recipe = bid[len("nav-"):]
+            tab = self._tab_of.get(recipe)
+            if tab:
+                self.query_one(f"#content-{tab}", ContentSwitcher).current = f"pane-{recipe}"
+            return
+        elif bid == "run-config-save":
+            self._save_config()
+            return
         elif bid == "run-convert-tree":
             self._launch_convert_tree()
         elif bid.removeprefix("run-") in _VALIDATION_LAYER_RECIPES:

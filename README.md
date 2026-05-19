@@ -227,7 +227,7 @@ SSIS package's own execution.  It has three independent layers.
 | Differential | `just validate` | SQL Server + golden fixtures |
 
 All three layers are also runnable from the Textual TUI (`just tui` →
-**Validation** pane) without leaving the terminal.
+**Validation** tab) without leaving the terminal.
 
 **Static** (`validation/test_static.py`) runs structural checks on every
 corpus package — sqlglot parse-validity of the converted T-SQL, column
