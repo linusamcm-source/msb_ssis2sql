@@ -245,7 +245,8 @@ def _three_recipes() -> list[Recipe]:
 
 
 async def test_app_compose_one_button_per_recipe(monkeypatch, tmp_path):
-    """AC 1: sidebar has exactly one nav-button per non-excluded recipe."""
+    """AC 1: sidebar has one nav-button per non-excluded recipe, plus the
+    synthetic ``validation`` pane button the app always appends."""
     import ssis2sql.tui as tui_mod
     from textual.widgets import Button
 
@@ -255,9 +256,9 @@ async def test_app_compose_one_button_per_recipe(monkeypatch, tmp_path):
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
         sidebar_buttons = list(app.query("#sidebar Button"))
-        assert len(sidebar_buttons) == 3
+        assert len(sidebar_buttons) == 4
         ids = {b.id for b in sidebar_buttons}
-        assert ids == {"nav-clean", "nav-demo", "nav-test"}
+        assert ids == {"nav-clean", "nav-demo", "nav-test", "nav-validation"}
 
 
 async def test_app_compose_no_button_for_excluded_recipes(monkeypatch, tmp_path):
