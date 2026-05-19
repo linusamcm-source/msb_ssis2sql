@@ -1,6 +1,6 @@
 # Default recipe: run Claude in max-effort auto mode.
 opus:
-    claude --dangerously-skip-permissions --effort 'max' --enable-auto-mode
+    claude --dangerously-skip-permissions --effort 'max' --enable-auto-mode 
 
 # Create the virtual environment and install ssis2sql with dev dependencies.
 install:
