@@ -110,6 +110,42 @@ def parse_pytest_summary(lines: list[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# .env helpers — read/write the MSSQL_* connection settings.
+# ---------------------------------------------------------------------------
+
+_MSSQL_KEYS = (
+    "MSSQL_SERVER_ADDRESS",
+    "MSSQL_SERVER_PORT",
+    "MSSQL_SA_USERNAME",
+    "MSSQL_SA_PASSWORD",
+)
+
+
+def read_env(path: Path) -> dict[str, str]:
+    """Parse a KEY=VALUE .env file. Missing file → empty dict.
+
+    Blank lines and ``#`` comments are skipped; only the first ``=`` splits.
+    """
+    values: dict[str, str] = {}
+    if not path.is_file():
+        return values
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, val = line.partition("=")
+        values[key.strip()] = val.strip()
+    return values
+
+
+def write_env(path: Path, values: dict[str, str]) -> None:
+    """Write the four MSSQL_* keys as KEY=VALUE lines (others dropped)."""
+    lines = ["# MSSQL connection parameters for the validation framework."]
+    lines += [f"{k}={values.get(k, '')}" for k in _MSSQL_KEYS]
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
 # Story 3 — filtered DirectoryTree for .dtsx file pickers.
 # ---------------------------------------------------------------------------
 
@@ -193,6 +229,30 @@ class ValidationPane(VerticalScroll):
                 yield Button(label, id=f"run-{recipe}", variant="primary")
         yield Static("idle", id="validation-summary")
         yield Log(id="log-validation")
+
+
+class ConfigPane(VerticalScroll):
+    """Configuration pane: edit the .env MSSQL connection settings."""
+
+    def __init__(self, recipe: Recipe, repo_root: Path) -> None:
+        super().__init__(id="pane-config")
+        self._recipe = recipe
+        self._env_path = repo_root / ".env"
+
+    def compose(self) -> ComposeResult:
+        values = read_env(self._env_path)
+        yield Static("Edit the SQL Server connection used by the differential "
+                     "validation layer. Saved to .env (gitignored).",
+                     classes="pane-desc")
+        for key in _MSSQL_KEYS:
+            yield Static(key, classes="config-label")
+            yield Input(
+                value=values.get(key, ""),
+                id=f"cfg-{key}",
+                password=key.endswith("PASSWORD"),
+            )
+        yield Button("Save", id="run-config-save", variant="primary")
+        yield Static("", id="config-status")
 
 
 # ---------------------------------------------------------------------------

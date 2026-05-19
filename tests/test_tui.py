@@ -30,9 +30,12 @@ import pytest
 from ssis2sql.tui import (
     Recipe,
     Ssis2SqlTUI,
+    _MSSQL_KEYS,
     discover_recipes,
     find_repo_root,
     parse_pytest_summary,
+    read_env,
+    write_env,
 )
 
 # ---------------------------------------------------------------------------
@@ -1156,3 +1159,98 @@ async def test_differential_button_no_warning_when_dotenv_present(monkeypatch, t
         log = app.query_one("#log-validation", Log)
         all_lines = "\n".join(log.lines)
         assert "note: .env not found" not in all_lines
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 (tabs) — read_env / write_env: pure .env helpers (plan §1.1).
+# ---------------------------------------------------------------------------
+
+
+def test_read_env_returns_dict_of_four_keys(tmp_path):
+    """read_env on a written .env returns a dict of the four MSSQL_* keys."""
+    env_path = tmp_path / ".env"
+    write_env(env_path, {
+        "MSSQL_SERVER_ADDRESS": "localhost",
+        "MSSQL_SERVER_PORT": "1433",
+        "MSSQL_SA_USERNAME": "sa",
+        "MSSQL_SA_PASSWORD": "secret",
+    })
+
+    values = read_env(env_path)
+    assert {k: values[k] for k in _MSSQL_KEYS} == {
+        "MSSQL_SERVER_ADDRESS": "localhost",
+        "MSSQL_SERVER_PORT": "1433",
+        "MSSQL_SA_USERNAME": "sa",
+        "MSSQL_SA_PASSWORD": "secret",
+    }
+
+
+def test_read_env_missing_path_returns_empty_dict(tmp_path):
+    """read_env on a non-existent path returns an empty dict, not an error."""
+    assert read_env(tmp_path / "does_not_exist.env") == {}
+
+
+def test_read_env_skips_comments_and_blank_lines(tmp_path):
+    """read_env skips # comments and blank lines, keeping only KEY=VALUE pairs."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "# a comment\n"
+        "\n"
+        "MSSQL_SERVER_ADDRESS=localhost\n"
+        "   \n"
+        "# another comment\n"
+        "MSSQL_SERVER_PORT=1433\n",
+        encoding="utf-8",
+    )
+
+    values = read_env(env_path)
+    assert values == {
+        "MSSQL_SERVER_ADDRESS": "localhost",
+        "MSSQL_SERVER_PORT": "1433",
+    }
+
+
+def test_write_env_then_read_env_round_trips(tmp_path):
+    """write_env followed by read_env round-trips the four values exactly."""
+    env_path = tmp_path / ".env"
+    original = {
+        "MSSQL_SERVER_ADDRESS": "db.example.com",
+        "MSSQL_SERVER_PORT": "1434",
+        "MSSQL_SA_USERNAME": "admin",
+        "MSSQL_SA_PASSWORD": "p@ssw0rd",
+    }
+    write_env(env_path, original)
+
+    values = read_env(env_path)
+    assert {k: values[k] for k in _MSSQL_KEYS} == original
+
+
+def test_write_env_drops_non_mssql_keys(tmp_path):
+    """write_env writes only the four MSSQL_* keys — extra keys are dropped."""
+    env_path = tmp_path / ".env"
+    write_env(env_path, {
+        "MSSQL_SERVER_ADDRESS": "localhost",
+        "MSSQL_SERVER_PORT": "1433",
+        "MSSQL_SA_USERNAME": "sa",
+        "MSSQL_SA_PASSWORD": "secret",
+        "SOME_OTHER_KEY": "should-not-appear",
+        "PATH": "/usr/bin",
+    })
+
+    values = read_env(env_path)
+    assert set(values) == set(_MSSQL_KEYS)
+    assert "SOME_OTHER_KEY" not in values
+    assert "PATH" not in values
+
+
+def test_write_env_partial_dict_does_not_crash(tmp_path):
+    """write_env on a partial dict does not crash; missing keys → empty values."""
+    env_path = tmp_path / ".env"
+    write_env(env_path, {"MSSQL_SERVER_ADDRESS": "localhost"})
+
+    values = read_env(env_path)
+    assert set(values) == set(_MSSQL_KEYS)
+    assert values["MSSQL_SERVER_ADDRESS"] == "localhost"
+    assert values["MSSQL_SERVER_PORT"] == ""
+    assert values["MSSQL_SA_USERNAME"] == ""
+    assert values["MSSQL_SA_PASSWORD"] == ""
