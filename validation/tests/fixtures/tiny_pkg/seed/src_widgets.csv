@@ -1,0 +1,5 @@
+id,name,description,quantity,price,created_at,active
+1,Widget A,First widget,10,9.9900,2026-01-01 00:00:00,1
+2,Widget B,,5,19.9900,2026-01-02 08:30:00,0
+3,Widget C,\N,,4.5000,2026-03-15 12:00:00,1
+4,Widget D,Has spaces ,20,0.0100,2026-04-01 23:59:59,0
