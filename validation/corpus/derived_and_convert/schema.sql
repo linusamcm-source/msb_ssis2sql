@@ -20,7 +20,7 @@ CREATE TABLE dbo.dst_products (
     price_flt      float          NOT NULL,
     id_str         nvarchar(20)   NOT NULL,
     total_value    decimal(18,4)  NOT NULL,
-    label_clean    nvarchar(200)  NOT NULL,
+    label_clean    nvarchar(200)  NULL,
     event_year     int            NOT NULL,
     price_category nvarchar(10)   NOT NULL,
     label_safe     nvarchar(200)  NOT NULL,

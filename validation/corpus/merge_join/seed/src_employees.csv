@@ -4,4 +4,4 @@ emp_id,dept_id,name
 3,20,Charlie
 4,30,Dana
 5,99,Eve
-6,\N,Frank
+6,,Frank
