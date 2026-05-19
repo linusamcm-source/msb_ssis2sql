@@ -1,0 +1,29 @@
+package: union_multicast
+destinations:
+  dst_all_events:
+    comparison: multiset
+    columns:
+      id:         { policy: exact }
+      event_type: { policy: exact }
+      amount:     { policy: float, epsilon: 0.0001 }
+      # Audit columns: pkg_name is a deterministic literal in the converted SQL
+      # but exec_time (SYSDATETIME()) is non-deterministic. Both are excluded so
+      # comparison focuses on the business columns that ssis2sql actually transforms.
+      pkg_name:   { policy: exclude }
+      exec_time:  { policy: exclude }
+    known_divergences:
+      # src_events_prior row 4 (id=3, sale, 250.0000) is a full business-column
+      # duplicate of src_events_current row 3. After UNION ALL (via Merge) both
+      # copies appear in dst_all_events: multiset comparison counts both and catches
+      # any implementation that de-duplicates with UNION DISTINCT instead of UNION ALL.
+      []
+  dst_events_backup:
+    comparison: multiset
+    columns:
+      id:         { policy: exact }
+      event_type: { policy: exact }
+      amount:     { policy: float, epsilon: 0.0001 }
+    known_divergences:
+      # Same duplicate noted above: both copies also appear in dst_events_backup
+      # via the Multicast fan-out. Multiset comparison validates preservation.
+      []

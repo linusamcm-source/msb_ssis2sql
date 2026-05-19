@@ -1,0 +1,17 @@
+package: merge_join
+destinations:
+  dst_emp_dept:
+    comparison: multiset
+    columns:
+      emp_id:    { policy: exact }
+      dept_id:   { policy: exact }
+      name:      { policy: exact }
+      dept_name: { policy: exact }
+    known_divergences:
+      # emp_id=6 has dept_id=NULL. SQL INNER JOIN evaluates NULL = dept_id as
+      # UNKNOWN -> the row is dropped from dst_emp_dept. SSIS Merge Join on an
+      # INNER JOIN also drops rows where the join key is NULL on either side.
+      # Behaviour matches: neither SQL nor SSIS writes emp_id=6 to dst_emp_dept.
+      # emp_id=5 (dept_id=99) also has no matching department and is dropped by
+      # both SQL INNER JOIN and SSIS Merge Join. No known divergences.
+      []

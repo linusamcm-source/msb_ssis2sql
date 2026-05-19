@@ -1,0 +1,29 @@
+package: etl_full
+destinations:
+  dst_enriched:
+    comparison: multiset
+    columns:
+      txn_id:       { policy: exact }
+      cust_id:      { policy: exact }
+      amount:       { policy: float, epsilon: 0.0001 }
+      region:       { policy: exact }
+      net_amount:   { policy: float, epsilon: 0.001 }
+      region_clean: { policy: exact }
+      tier:         { policy: exact }
+      segment:      { policy: exact }
+    known_divergences:
+      # ref_customer_tiers has two rows for cust_id=10 (Gold and Platinum).
+      # SQL LEFT JOIN row-multiplies: every transaction for cust_id=10 (rows 1 and
+      # 3) yields 2 output rows, one per reference row. SSIS full-cache lookup
+      # returns only the first matching tier row per input row. The converted SQL
+      # writes 4 rows for cust_id=10 transactions; SSIS writes 2.
+      # cust_id=99 (no match) keeps tier=NULL in both SQL LEFT JOIN and SSIS with
+      # NoMatchBehavior=0 (ignore, no no-match output). No divergence for that row.
+      - kind: lookup_duplicate_ref_key
+        component: Lookup Customer Tier
+        handling: xfail
+        reason: >
+          ref_customer_tiers has two rows for cust_id=10. SQL LEFT JOIN produces one
+          output row per matching reference row, doubling transactions for cust_id=10.
+          SSIS full-cache lookup returns only the first match per input row. The
+          converted SQL writes extra rows; SSIS does not.

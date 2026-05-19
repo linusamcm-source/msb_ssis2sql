@@ -2,7 +2,7 @@
 
 **Repository:** `ssis2sql`
 **Author:** generated 2026-05-18
-**Status:** amended 2026-05-18 — remote SQL Server execution engine (was Docker/testcontainers); ready for `/team-sprint`
+**Status:** in progress 2026-05-18 — Story 0 (Foundation) GREEN phase implementation underway
 **Companion:** `docs/sprint-coverage-95.md` (unit-coverage sprint — separate effort)
 
 ---

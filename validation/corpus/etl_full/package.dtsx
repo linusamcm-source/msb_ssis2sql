@@ -1,0 +1,287 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="etl_full"
+                DTS:VersionBuild="1">
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[ODBC]"
+                           DTS:ObjectName="ODBC"
+                           DTS:CreationName="OLEDB">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+            DTS:ConnectionString="Data Source=localhost;Initial Catalog=val_etl_full;Provider=SQLNCLI11;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+
+  <DTS:Executables>
+    <!-- Rich pipeline: Source → DerivedColumn → Lookup → ConditionalSplit →
+         two branches each with DerivedColumn → UnionAll → Sort → Destination -->
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT ETL Full"
+                    DTS:refId="Package\DFT ETL Full">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+
+            <!-- Source: raw transactions -->
+            <component refId="Src" name="Source Transactions"
+                       componentClassID="Microsoft.ODBCSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT txn_id, cust_id, amount, region FROM dbo.src_transactions</property>
+              </properties>
+              <connections>
+                <connection refId="Src.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <outputs>
+                <output refId="Src.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="Src.Output.txn_id" name="txn_id" dataType="i4" />
+                    <outputColumn refId="Src.Output.cust_id" name="cust_id" dataType="i4" />
+                    <outputColumn refId="Src.Output.amount" name="amount" dataType="numeric" precision="18" scale="4" />
+                    <outputColumn refId="Src.Output.region" name="region" dataType="wstr" length="50" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- DerivedColumn: compute net_amount and clean region -->
+            <component refId="Enrich" name="Enrich Transactions"
+                       componentClassID="Microsoft.DerivedColumn">
+              <inputs>
+                <input refId="Enrich.Input" name="Derived Column Input">
+                  <inputColumns>
+                    <inputColumn refId="Enrich.Input.amount" cachedName="amount"
+                                 lineageId="Src.Output.amount" usageType="readOnly" />
+                    <inputColumn refId="Enrich.Input.region" cachedName="region"
+                                 lineageId="Src.Output.region" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="Enrich.Output" name="Derived Column Output"
+                        synchronousInputId="Enrich.Input">
+                  <outputColumns>
+                    <outputColumn refId="Enrich.Output.net_amount" name="net_amount"
+                                  dataType="numeric" precision="18" scale="4">
+                      <properties>
+                        <property name="Expression">[amount] * 0.9</property>
+                        <property name="FriendlyExpression">[amount] * 0.9</property>
+                      </properties>
+                    </outputColumn>
+                    <outputColumn refId="Enrich.Output.region_clean" name="region_clean"
+                                  dataType="wstr" length="50">
+                      <properties>
+                        <property name="Expression">UPPER(TRIM([region]))</property>
+                        <property name="FriendlyExpression">UPPER(TRIM([region]))</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Lookup: join to customer tier reference -->
+            <component refId="Lkp" name="Lookup Customer Tier"
+                       componentClassID="Microsoft.Lookup">
+              <properties>
+                <property name="SqlCommand">SELECT cust_id, tier FROM dbo.ref_customer_tiers</property>
+                <property name="NoMatchBehavior">0</property>
+              </properties>
+              <connections>
+                <connection refId="Lkp.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="Lkp.Input" name="Lookup Input">
+                  <inputColumns>
+                    <inputColumn refId="Lkp.Input.cust_id" cachedName="cust_id"
+                                 lineageId="Src.Output.cust_id" usageType="readOnly">
+                      <properties>
+                        <property name="JoinToReferenceColumn">cust_id</property>
+                      </properties>
+                    </inputColumn>
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="Lkp.Match" name="Lookup Match Output">
+                  <outputColumns>
+                    <outputColumn refId="Lkp.Match.tier" name="tier" dataType="wstr" length="20">
+                      <properties>
+                        <property name="CopyFromReferenceColumn">tier</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- ConditionalSplit: high-value (net_amount >= 200) vs default -->
+            <component refId="Split" name="Route by Value"
+                       componentClassID="Microsoft.ConditionalSplit">
+              <inputs>
+                <input refId="Split.Input" name="Conditional Split Input" />
+              </inputs>
+              <outputs>
+                <output refId="Split.High" name="High Value"
+                        synchronousInputId="Split.Input" exclusionGroup="1">
+                  <properties>
+                    <property name="EvaluationOrder">0</property>
+                    <property name="Expression">[net_amount] >= 200</property>
+                    <property name="FriendlyExpression">[net_amount] >= 200</property>
+                  </properties>
+                </output>
+                <output refId="Split.Low" name="Low Value Default Output"
+                        synchronousInputId="Split.Input" exclusionGroup="1" />
+              </outputs>
+            </component>
+
+            <!-- Tag high-value rows with segment label -->
+            <component refId="TagHigh" name="Tag High"
+                       componentClassID="Microsoft.DerivedColumn">
+              <inputs>
+                <input refId="TagHigh.Input" name="Derived Column Input" />
+              </inputs>
+              <outputs>
+                <output refId="TagHigh.Output" name="Derived Column Output"
+                        synchronousInputId="TagHigh.Input">
+                  <outputColumns>
+                    <outputColumn refId="TagHigh.Output.segment" name="segment"
+                                  dataType="wstr" length="10">
+                      <properties>
+                        <property name="Expression">"HIGH"</property>
+                        <property name="FriendlyExpression">"HIGH"</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Tag low-value rows with segment label -->
+            <component refId="TagLow" name="Tag Low"
+                       componentClassID="Microsoft.DerivedColumn">
+              <inputs>
+                <input refId="TagLow.Input" name="Derived Column Input" />
+              </inputs>
+              <outputs>
+                <output refId="TagLow.Output" name="Derived Column Output"
+                        synchronousInputId="TagLow.Input">
+                  <outputColumns>
+                    <outputColumn refId="TagLow.Output.segment" name="segment"
+                                  dataType="wstr" length="10">
+                      <properties>
+                        <property name="Expression">"LOW"</property>
+                        <property name="FriendlyExpression">"LOW"</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- UnionAll: recombine both branches -->
+            <component refId="UA" name="Recombine Branches"
+                       componentClassID="Microsoft.UnionAll">
+              <inputs>
+                <input refId="UA.Input1" name="Union All Input 1" />
+                <input refId="UA.Input2" name="Union All Input 2" />
+              </inputs>
+              <outputs>
+                <output refId="UA.Output" name="Union All Output">
+                  <outputColumns>
+                    <outputColumn refId="UA.Output.txn_id" name="txn_id" dataType="i4" />
+                    <outputColumn refId="UA.Output.cust_id" name="cust_id" dataType="i4" />
+                    <outputColumn refId="UA.Output.amount" name="amount" dataType="numeric" precision="18" scale="4" />
+                    <outputColumn refId="UA.Output.region" name="region" dataType="wstr" length="50" />
+                    <outputColumn refId="UA.Output.net_amount" name="net_amount" dataType="numeric" precision="18" scale="4" />
+                    <outputColumn refId="UA.Output.region_clean" name="region_clean" dataType="wstr" length="50" />
+                    <outputColumn refId="UA.Output.tier" name="tier" dataType="wstr" length="20" />
+                    <outputColumn refId="UA.Output.segment" name="segment" dataType="wstr" length="10" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Sort by region_clean ASC, net_amount DESC -->
+            <component refId="Srt" name="Sort Results"
+                       componentClassID="Microsoft.Sort">
+              <properties>
+                <property name="EliminateDuplicates">false</property>
+              </properties>
+              <inputs>
+                <input refId="Srt.Input" name="Sort Input">
+                  <inputColumns>
+                    <inputColumn refId="Srt.Input.region_clean" cachedName="region_clean"
+                                 lineageId="UA.Output.region_clean" usageType="readWrite">
+                      <properties>
+                        <property name="NewSortKeyPosition">1</property>
+                      </properties>
+                    </inputColumn>
+                    <inputColumn refId="Srt.Input.net_amount" cachedName="net_amount"
+                                 lineageId="UA.Output.net_amount" usageType="readWrite">
+                      <properties>
+                        <property name="NewSortKeyPosition">-2</property>
+                      </properties>
+                    </inputColumn>
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="Srt.Output" name="Sort Output" />
+              </outputs>
+            </component>
+
+            <!-- Destination: enriched transactions -->
+            <component refId="Dst" name="Destination Enriched"
+                       componentClassID="Microsoft.ODBCDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">[dbo].[dst_enriched]</property>
+              </properties>
+              <connections>
+                <connection refId="Dst.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="Dst.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="Dst.Input.txn_id" cachedName="txn_id" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.cust_id" cachedName="cust_id" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.amount" cachedName="amount" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.region" cachedName="region" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.net_amount" cachedName="net_amount" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.region_clean" cachedName="region_clean" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.tier" cachedName="tier" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.segment" cachedName="segment" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+          </components>
+          <paths>
+            <path refId="p1" startId="Src.Output" endId="Enrich.Input" />
+            <path refId="p2" startId="Enrich.Output" endId="Lkp.Input" />
+            <path refId="p3" startId="Lkp.Match" endId="Split.Input" />
+            <path refId="p4" startId="Split.High" endId="TagHigh.Input" />
+            <path refId="p5" startId="Split.Low" endId="TagLow.Input" />
+            <path refId="p6" startId="TagHigh.Output" endId="UA.Input1" />
+            <path refId="p7" startId="TagLow.Output" endId="UA.Input2" />
+            <path refId="p8" startId="UA.Output" endId="Srt.Input" />
+            <path refId="p9" startId="Srt.Output" endId="Dst.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

@@ -1,0 +1,11 @@
+package: passthrough_basic
+destinations:
+  dst_items:
+    comparison: multiset
+    columns:
+      id:        { policy: exact }
+      name:      { policy: exact }
+      amount:    { policy: float, epsilon: 0.0001 }
+      active:    { policy: exact }
+      loaded_at: { policy: datetime, tolerance: 1.0 }
+    known_divergences: []

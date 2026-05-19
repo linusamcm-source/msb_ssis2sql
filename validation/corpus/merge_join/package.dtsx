@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="merge_join"
+                DTS:VersionBuild="1">
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[ODBC]"
+                           DTS:ObjectName="ODBC"
+                           DTS:CreationName="OLEDB">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+            DTS:ConnectionString="Data Source=localhost;Initial Catalog=val_merge_join;Provider=SQLNCLI11;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT Merge Join"
+                    DTS:refId="Package\DFT Merge Join">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+
+            <!-- Left input: employees -->
+            <component refId="SrcEmp" name="Source Employees"
+                       componentClassID="Microsoft.ODBCSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT emp_id, dept_id, name FROM dbo.src_employees</property>
+              </properties>
+              <connections>
+                <connection refId="SrcEmp.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <outputs>
+                <output refId="SrcEmp.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="SrcEmp.Output.emp_id" name="emp_id" dataType="i4" />
+                    <outputColumn refId="SrcEmp.Output.dept_id" name="dept_id" dataType="i4" />
+                    <outputColumn refId="SrcEmp.Output.name" name="name" dataType="wstr" length="100" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Right input: departments -->
+            <component refId="SrcDept" name="Source Departments"
+                       componentClassID="Microsoft.ODBCSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT dept_id, dept_name FROM dbo.src_departments</property>
+              </properties>
+              <connections>
+                <connection refId="SrcDept.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <outputs>
+                <output refId="SrcDept.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="SrcDept.Output.dept_id" name="dept_id" dataType="i4" />
+                    <outputColumn refId="SrcDept.Output.dept_name" name="dept_name" dataType="wstr" length="100" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- INNER JOIN employees to departments on dept_id -->
+            <component refId="MJ" name="Join Emp Dept"
+                       componentClassID="Microsoft.MergeJoin">
+              <properties>
+                <!-- JoinType: 2 = INNER JOIN -->
+                <property name="JoinType">2</property>
+                <property name="NumKeyColumns">1</property>
+                <property name="TreatNullsAsEqual">false</property>
+              </properties>
+              <inputs>
+                <input refId="MJ.Left" name="Merge Join Left Input">
+                  <inputColumns>
+                    <inputColumn refId="MJ.Left.emp_id" cachedName="emp_id"
+                                 lineageId="SrcEmp.Output.emp_id" usageType="readOnly" />
+                    <inputColumn refId="MJ.Left.dept_id" cachedName="dept_id"
+                                 lineageId="SrcEmp.Output.dept_id" usageType="readOnly" />
+                    <inputColumn refId="MJ.Left.name" cachedName="name"
+                                 lineageId="SrcEmp.Output.name" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+                <input refId="MJ.Right" name="Merge Join Right Input">
+                  <inputColumns>
+                    <inputColumn refId="MJ.Right.dept_id" cachedName="dept_id"
+                                 lineageId="SrcDept.Output.dept_id" usageType="readOnly" />
+                    <inputColumn refId="MJ.Right.dept_name" cachedName="dept_name"
+                                 lineageId="SrcDept.Output.dept_name" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="MJ.Output" name="Merge Join Output">
+                  <outputColumns>
+                    <outputColumn refId="MJ.Output.emp_id" name="emp_id" dataType="i4" />
+                    <outputColumn refId="MJ.Output.dept_id" name="dept_id" dataType="i4" />
+                    <outputColumn refId="MJ.Output.name" name="name" dataType="wstr" length="100" />
+                    <outputColumn refId="MJ.Output.dept_name" name="dept_name" dataType="wstr" length="100" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <component refId="Dst" name="Destination"
+                       componentClassID="Microsoft.ODBCDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">[dbo].[dst_emp_dept]</property>
+              </properties>
+              <connections>
+                <connection refId="Dst.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="Dst.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="Dst.Input.emp_id" cachedName="emp_id" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.dept_id" cachedName="dept_id" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.name" cachedName="name" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.dept_name" cachedName="dept_name" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+          </components>
+          <paths>
+            <path refId="p1" startId="SrcEmp.Output" endId="MJ.Left" />
+            <path refId="p2" startId="SrcDept.Output" endId="MJ.Right" />
+            <path refId="p3" startId="MJ.Output" endId="Dst.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

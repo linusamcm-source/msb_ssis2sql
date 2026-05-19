@@ -52,6 +52,27 @@ convert-samples:
 tui:
     .venv/bin/python -m ssis2sql.tui
 
+# Install ssis2sql + the validation extra into .venv (system pyodbc driver required).
+install-validation:
+    python3 -m venv .venv
+    .venv/bin/pip install -e ".[validation]"
+
+# Run the full differential validation suite (needs SQL Server; skips until golden exists).
+validate:
+    .venv/bin/python -m pytest validation/ -m validation
+
+# Run the framework's own unit tests (no SQL Server required).
+validate-unit:
+    .venv/bin/python -m pytest validation/tests
+
+# Run framework unit tests with a coverage report for the validation package.
+validate-cov:
+    .venv/bin/python -m pytest validation/tests --cov=validation --cov-report=term-missing --cov-report=json
+
+# Run the static structural checks (no SQL Server required).
+validate-static:
+    .venv/bin/python -m pytest validation/test_static.py
+
 # Remove the virtual environment, build artefacts, and caches.
 clean:
     rm -rf .venv .pytest_cache build dist *.egg-info

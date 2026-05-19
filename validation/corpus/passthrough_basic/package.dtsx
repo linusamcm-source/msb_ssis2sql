@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="passthrough_basic"
+                DTS:VersionBuild="1">
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[ODBC]"
+                           DTS:ObjectName="ODBC"
+                           DTS:CreationName="OLEDB">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+            DTS:ConnectionString="Data Source=localhost;Initial Catalog=val_passthrough_basic;Provider=SQLNCLI11;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT Passthrough"
+                    DTS:refId="Package\DFT Passthrough">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+
+            <component refId="Src" name="Source"
+                       componentClassID="Microsoft.ODBCSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT id, name, amount, active, loaded_at FROM dbo.src_items</property>
+              </properties>
+              <connections>
+                <connection refId="Src.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <outputs>
+                <output refId="Src.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="Src.Output.id" name="id" dataType="i4" />
+                    <outputColumn refId="Src.Output.name" name="name" dataType="wstr" length="100" />
+                    <outputColumn refId="Src.Output.amount" name="amount" dataType="numeric" precision="18" scale="4" />
+                    <outputColumn refId="Src.Output.active" name="active" dataType="bool" />
+                    <outputColumn refId="Src.Output.loaded_at" name="loaded_at" dataType="dbTimeStamp" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <component refId="Dst" name="Destination"
+                       componentClassID="Microsoft.ODBCDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">[dbo].[dst_items]</property>
+              </properties>
+              <connections>
+                <connection refId="Dst.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="Dst.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="Dst.Input.id" cachedName="id" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.name" cachedName="name" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.amount" cachedName="amount" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.active" cachedName="active" usageType="readOnly" />
+                    <inputColumn refId="Dst.Input.loaded_at" cachedName="loaded_at" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+          </components>
+          <paths>
+            <path refId="p1" name="Source to Destination" startId="Src.Output" endId="Dst.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

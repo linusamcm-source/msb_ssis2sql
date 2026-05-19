@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="conditional_split"
+                DTS:VersionBuild="1">
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:refId="Package.ConnectionManagers[ODBC]"
+                           DTS:ObjectName="ODBC"
+                           DTS:CreationName="OLEDB">
+      <DTS:ObjectData>
+        <DTS:ConnectionManager
+            DTS:ConnectionString="Data Source=localhost;Initial Catalog=val_conditional_split;Provider=SQLNCLI11;" />
+      </DTS:ObjectData>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT Conditional Split"
+                    DTS:refId="Package\DFT Conditional Split">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+
+            <component refId="Src" name="Source"
+                       componentClassID="Microsoft.ODBCSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT id, score, category FROM dbo.src_scores</property>
+              </properties>
+              <connections>
+                <connection refId="Src.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <outputs>
+                <output refId="Src.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="Src.Output.id" name="id" dataType="i4" />
+                    <outputColumn refId="Src.Output.score" name="score" dataType="numeric" precision="10" scale="2" />
+                    <outputColumn refId="Src.Output.category" name="category" dataType="wstr" length="50" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+
+            <!-- Conditional Split: High / Medium / Default(Low) -->
+            <component refId="Split" name="Route by Score"
+                       componentClassID="Microsoft.ConditionalSplit">
+              <inputs>
+                <input refId="Split.Input" name="Conditional Split Input" />
+              </inputs>
+              <outputs>
+                <output refId="Split.High" name="High"
+                        synchronousInputId="Split.Input" exclusionGroup="1">
+                  <properties>
+                    <property name="EvaluationOrder">0</property>
+                    <property name="Expression">[score] >= 80</property>
+                    <property name="FriendlyExpression">[score] >= 80</property>
+                  </properties>
+                </output>
+                <output refId="Split.Medium" name="Medium"
+                        synchronousInputId="Split.Input" exclusionGroup="1">
+                  <properties>
+                    <property name="EvaluationOrder">1</property>
+                    <property name="Expression">[score] >= 50 &amp;&amp; [score] &lt; 80</property>
+                    <property name="FriendlyExpression">[score] >= 50 &amp;&amp; [score] &lt; 80</property>
+                  </properties>
+                </output>
+                <output refId="Split.Low" name="Low Default Output"
+                        synchronousInputId="Split.Input" exclusionGroup="1" isErrorOutput="false" />
+              </outputs>
+            </component>
+
+            <!-- Destination for High-score rows -->
+            <component refId="DstHigh" name="Destination High"
+                       componentClassID="Microsoft.ODBCDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">[dbo].[dst_high]</property>
+              </properties>
+              <connections>
+                <connection refId="DstHigh.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="DstHigh.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="DstHigh.Input.id" cachedName="id" usageType="readOnly" />
+                    <inputColumn refId="DstHigh.Input.score" cachedName="score" usageType="readOnly" />
+                    <inputColumn refId="DstHigh.Input.category" cachedName="category" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+            <!-- Destination for Medium-score rows -->
+            <component refId="DstMed" name="Destination Medium"
+                       componentClassID="Microsoft.ODBCDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">[dbo].[dst_medium]</property>
+              </properties>
+              <connections>
+                <connection refId="DstMed.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="DstMed.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="DstMed.Input.id" cachedName="id" usageType="readOnly" />
+                    <inputColumn refId="DstMed.Input.score" cachedName="score" usageType="readOnly" />
+                    <inputColumn refId="DstMed.Input.category" cachedName="category" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+            <!-- Destination for Low (default) rows -->
+            <component refId="DstLow" name="Destination Low"
+                       componentClassID="Microsoft.ODBCDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">[dbo].[dst_low]</property>
+              </properties>
+              <connections>
+                <connection refId="DstLow.Connection"
+                            connectionManagerID="Package.ConnectionManagers[ODBC]"
+                            connectionManagerRefId="Package.ConnectionManagers[ODBC]"
+                            name="OleDbConnection" />
+              </connections>
+              <inputs>
+                <input refId="DstLow.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="DstLow.Input.id" cachedName="id" usageType="readOnly" />
+                    <inputColumn refId="DstLow.Input.score" cachedName="score" usageType="readOnly" />
+                    <inputColumn refId="DstLow.Input.category" cachedName="category" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+
+          </components>
+          <paths>
+            <path refId="p1" startId="Src.Output" endId="Split.Input" />
+            <path refId="p2" startId="Split.High" endId="DstHigh.Input" />
+            <path refId="p3" startId="Split.Medium" endId="DstMed.Input" />
+            <path refId="p4" startId="Split.Low" endId="DstLow.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

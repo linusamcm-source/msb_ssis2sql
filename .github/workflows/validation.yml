@@ -1,0 +1,45 @@
+# Static + unit validation layers.
+#
+# Runs on every push and pull_request.  The differential layer (just validate)
+# requires a live SQL Server and is NOT run here — it is operator-triggered
+# locally or on a self-hosted runner with a provisioned SQL Server instance.
+#
+# Security:
+#   - All actions are pinned to immutable commit SHAs (not mutable tags).
+#   - Least-privilege permissions: contents read only.
+#   - No secrets are used or echoed.
+
+name: validation
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  static-and-unit:
+    name: Static + unit layers
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38  # v5.4.0
+        with:
+          python-version: "3.14"
+
+      - name: Install just
+        uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6  # v2.0.0
+
+      - name: Install validation dependencies
+        run: just install-validation
+
+      - name: Static structural checks (no SQL Server required)
+        run: just validate-static
+
+      - name: Framework unit tests (no SQL Server required)
+        run: just validate-unit

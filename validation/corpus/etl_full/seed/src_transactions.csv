@@ -1,0 +1,8 @@
+txn_id,cust_id,amount,region
+1,10,500.0000, North
+2,20,100.0000,South
+3,10,300.0000,North
+4,30,199.9999,East
+5,40,200.0000,West
+6,20,50.0000,South
+7,99,1000.0000,North

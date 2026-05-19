@@ -1,0 +1,29 @@
+package: conditional_split
+destinations:
+  dst_high:
+    comparison: multiset
+    columns:
+      id:       { policy: exact }
+      score:    { policy: float, epsilon: 0.001 }
+      category: { policy: exact }
+    known_divergences: []
+  dst_medium:
+    comparison: multiset
+    columns:
+      id:       { policy: exact }
+      score:    { policy: float, epsilon: 0.001 }
+      category: { policy: exact }
+    known_divergences: []
+  dst_low:
+    comparison: multiset
+    columns:
+      id:       { policy: exact }
+      score:    { policy: float, epsilon: 0.001 }
+      category: { policy: exact }
+    known_divergences:
+      # src_scores row 11 has score=NULL. The split predicates [score] >= 80 and
+      # [score] >= 50 && [score] < 80 both evaluate to UNKNOWN with a NULL score,
+      # so the row falls to the default/Low branch in SQL. SSIS ConditionalSplit
+      # also routes NULL-predicate rows to the default output. Behaviour matches;
+      # the NULL-score row lands in dst_low in both SQL and SSIS output.
+      []

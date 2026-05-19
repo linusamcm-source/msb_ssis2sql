@@ -1,0 +1,15 @@
+package: derived_and_convert
+destinations:
+  dst_products:
+    comparison: multiset
+    columns:
+      id:             { policy: exact }
+      price_flt:      { policy: float, epsilon: 0.001 }
+      id_str:         { policy: exact }
+      total_value:    { policy: float, epsilon: 0.0001 }
+      label_clean:    { policy: exact }
+      event_year:     { policy: exact }
+      price_category: { policy: exact }
+      label_safe:     { policy: exact }
+      qty_copy:       { policy: exact }
+    known_divergences: []

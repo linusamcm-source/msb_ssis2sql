@@ -1,0 +1,12 @@
+id,score,category
+1,95.00,Alpha
+2,80.00,Beta
+3,79.99,Gamma
+4,50.00,Alpha
+5,49.99,Beta
+6,0.00,Low
+7,100.00,Alpha
+8,80.00,Beta
+9,65.50,Gamma
+10,33.33,Low
+11,,Unknown

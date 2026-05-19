@@ -1,0 +1,51 @@
+package: lookup_match
+destinations:
+  dst_matched:
+    comparison: multiset
+    columns:
+      id:            { policy: exact }
+      order_id:      { policy: exact }
+      amount:        { policy: float, epsilon: 0.0001 }
+      customer_name: { policy: exact }
+      region:        { policy: exact }
+    known_divergences:
+      # LEFT JOIN keeps no-match rows (order_id=999) in dst_matched with NULL
+      # customer_name/region. SSIS routes them to dst_unmatched instead. The
+      # converted SQL therefore writes one extra row with NULLs to dst_matched
+      # that SSIS never writes there.
+      - kind: lookup_left_join
+        component: Lookup Customer
+        handling: xfail
+        reason: >
+          Transpiler emits LEFT JOIN; SSIS routes no-match rows (order_id=999) to
+          dst_unmatched, leaving only enriched rows in dst_matched. The converted
+          SQL keeps the no-match row in dst_matched with NULL customer_name and
+          region. This is a known semantic gap between LEFT JOIN and SSIS lookup
+          no-match routing.
+      # SQL LEFT JOIN row-multiplies when the reference table has duplicate keys.
+      # ref_customers has two rows for customer_id=101. Orders with order_id=101
+      # (src_orders rows 1 and 5) each produce 2 output rows in SQL (one per
+      # ref row), giving 4 rows total for those orders. SSIS full-cache lookup
+      # returns only the first matching reference row, giving 2 rows. The SQL
+      # result has extra rows from the Cartesian expansion.
+      - kind: lookup_duplicate_ref_key
+        component: Lookup Customer
+        handling: xfail
+        reason: >
+          ref_customers has two rows for customer_id=101. SQL LEFT JOIN produces
+          a row for each matching reference row (2 rows per order with order_id=101),
+          while SSIS full-cache lookup returns only the first match. The converted
+          SQL writes 4 rows for orders 1 and 5 combined; SSIS writes 2.
+  dst_unmatched:
+    comparison: multiset
+    columns:
+      id:       { policy: exact }
+      order_id: { policy: exact }
+      amount:   { policy: float, epsilon: 0.0001 }
+    known_divergences:
+      # NULL order_id (src_orders row 7): SQL LEFT JOIN ON L.order_id = R.customer_id
+      # evaluates NULL = anything as UNKNOWN -> no match -> row goes to
+      # Lookup_Customer_NoMatch (WHERE R.customer_id IS NULL). SSIS Lookup with a
+      # NULL join key also routes to the no-match output. Behaviour matches; no
+      # divergence. Both write the NULL-order_id row to dst_unmatched.
+      []

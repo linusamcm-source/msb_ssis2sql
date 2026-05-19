@@ -212,6 +212,116 @@ tests/                    pytest suite
 just test          # or: .venv/bin/python -m pytest
 ```
 
+## Validation
+
+The `validation/` tree is a differential test harness that verifies the
+`ssis2sql` transpiler's converted T-SQL produces identical results to the
+SSIS package's own execution.  It has three independent layers.
+
+### Three layers
+
+| Layer | Command | Requires |
+|-------|---------|----------|
+| Static | `just validate-static` | Nothing — pure analysis |
+| Unit | `just validate-unit` | Nothing — no SQL Server |
+| Differential | `just validate` | SQL Server + golden fixtures |
+
+**Static** (`validation/test_static.py`) runs structural checks on every
+corpus package — sqlglot parse-validity of the converted T-SQL, column
+lineage resolution, and a completeness matrix across all 15 must-cover
+component kinds.  Runs in under a second with no external dependencies.
+
+**Unit** (`validation/tests/`) exercises the framework's own modules —
+schema provisioning, seed loading, SQL runner, comparison engine, capture
+harness, and static check functions — with mocked or fixture-driven data.
+No SQL Server required.
+
+**Differential** (`validation/test_validation.py`) is the live gate: it
+provisions the schema, seeds source data, runs the converted SQL, and
+compares row-by-row against the SSIS golden output captured at
+`validation/corpus/<package>/golden/`.  Requires a live SQL Server and
+pre-captured golden fixtures (see [Golden capture](#golden-capture) below).
+
+### Corpus
+
+`validation/corpus/` contains eight SSIS packages exercising every
+supported component kind:
+
+```
+validation/corpus/
+  passthrough_basic/       OLEDB_SOURCE → OLEDB_DESTINATION
+  derived_and_convert/     DERIVED_COLUMN + DATA_CONVERSION + COPY_COLUMN
+  conditional_split/       CONDITIONAL_SPLIT (three branches + default)
+  aggregate_group/         AGGREGATE + SORT
+  lookup_match/            LOOKUP (match + no-match outputs)
+  merge_join/              MERGE_JOIN (inner/left/full outer)
+  union_multicast/         UNION_ALL + MERGE + MULTICAST + ROW_COUNT + AUDIT
+  etl_full/                end-to-end pipeline: SOURCE + DERIVED_COLUMN + LOOKUP + CONDITIONAL_SPLIT + UNION_ALL + SORT + DESTINATION
+```
+
+Each package directory contains `package.dtsx`, `schema.sql`,
+`seed/<table>.csv`, `golden/` (captured output), and `ledger.yaml`
+(per-column comparison tolerance overrides).
+
+### Golden capture
+
+Before running the differential layer, capture golden output from SSIS
+on a Windows host with dtexec:
+
+```sh
+# On the Windows host — see validation/capture/RUNBOOK.md for full steps
+.\capture.ps1 --package-dir validation\corpus\passthrough_basic
+```
+
+The RUNBOOK at `validation/capture/RUNBOOK.md` covers prerequisites,
+environment setup, troubleshooting, and the expected output layout.
+
+### Configuration
+
+The differential and capture layers connect to SQL Server via four
+environment variables.  Copy `.env.example` to `.env` (gitignored) and
+fill in your instance:
+
+```sh
+cp .env.example .env
+```
+
+```
+MSSQL_SERVER_ADDRESS=your-sql-server-host-or-ip
+MSSQL_SERVER_PORT=1433
+MSSQL_SA_USERNAME=sa
+MSSQL_SA_PASSWORD=YourStrong!Passw0rd
+```
+
+Never commit `.env` — it is gitignored.  The static and unit layers
+require no `.env` at all.
+
+### CI
+
+`.github/workflows/validation.yml` runs the static and unit layers on
+every push and pull request:
+
+```
+push / pull_request
+  └── static-and-unit (ubuntu-latest)
+        ├── just install-validation
+        ├── just validate-static   # no SQL Server
+        └── just validate-unit     # no SQL Server
+```
+
+The differential layer is not run in CI — it requires an
+operator-provisioned SQL Server.
+
+### Quick reference
+
+```sh
+just install-validation   # install ssis2sql + validation deps into .venv
+just validate-static      # static checks — no SQL Server (< 1 s)
+just validate-unit        # unit tests — no SQL Server
+just validate-cov         # unit tests with coverage report
+just validate             # full differential suite — SQL Server required
+```
+
 ## License
 
 MIT.
