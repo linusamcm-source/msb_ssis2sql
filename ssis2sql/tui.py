@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -11,6 +12,17 @@ from pathlib import Path
 #  - opus: launches an interactive Claude session (cannot be captured in a Log pane)
 #  - tui:  launching the TUI from inside the TUI would be recursive
 _EXCLUDED_RECIPES = frozenset({"opus", "tui"})
+
+# Validation-framework recipes that move into the dedicated ValidationPane;
+# they are dropped from the auto-discovered sidebar buttons to avoid duplication.
+_VALIDATION_LAYER_RECIPES = frozenset({"validate", "validate-static", "validate-unit"})
+
+# (recipe, button label) for the three layers, in display order.
+_VALIDATION_LAYERS = (
+    ("validate-static", "Static"),
+    ("validate-unit", "Unit"),
+    ("validate", "Differential"),
+)
 
 
 @dataclass
@@ -74,6 +86,27 @@ from textual.worker import get_current_worker  # noqa: E402
 def _slug(name: str) -> str:
     """Recipe name -> a widget-id-safe slug (hyphens are already valid CSS ids)."""
     return name
+
+
+_SUMMARY_RE = re.compile(
+    r"(\d+)\s+(passed|failed|skipped|errors?|xfailed|xpassed|deselected)"
+)
+_SUMMARY_ORDER = ["passed", "failed", "error", "skipped", "xfailed", "xpassed"]
+
+
+def parse_pytest_summary(lines: list[str]) -> str:
+    """Extract pytest's pass/fail/skip counts from captured output lines.
+
+    pytest prints its tally on the final ``===`` line; later occurrences win,
+    so a stray earlier number is harmless. Returns a fallback string when no
+    recognisable summary is present.
+    """
+    counts: dict[str, int] = {}
+    for line in lines:
+        for number, kind in _SUMMARY_RE.findall(line):
+            counts[kind.rstrip("s") if kind == "errors" else kind] = int(number)
+    parts = [f"{counts[k]} {k}" for k in _SUMMARY_ORDER if k in counts]
+    return " · ".join(parts) if parts else "no test summary found"
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +178,23 @@ class DtsxPickerPane(VerticalScroll):
         yield Log(id=f"log-{_slug(self._recipe.name)}")
 
 
+class ValidationPane(VerticalScroll):
+    """Dedicated pane: run the validation framework's three layers."""
+
+    def __init__(self, recipe: Recipe) -> None:
+        super().__init__(id="pane-validation")
+        self._recipe = recipe
+
+    def compose(self) -> ComposeResult:
+        yield Static(self._recipe.doc or "Run the validation framework.",
+                     classes="pane-desc")
+        with Horizontal(id="validation-buttons"):
+            for recipe, label in _VALIDATION_LAYERS:
+                yield Button(label, id=f"run-{recipe}", variant="primary")
+        yield Static("idle", id="validation-summary")
+        yield Log(id="log-validation")
+
+
 # ---------------------------------------------------------------------------
 # App.
 # ---------------------------------------------------------------------------
@@ -158,13 +208,21 @@ class Ssis2SqlTUI(App):
     #content { width: 1fr; padding: 1 2; }
     .pane-desc { color: $text-muted; margin-bottom: 1; }
     Log { height: 1fr; border: round $primary; }
+    #validation-buttons { height: auto; }
+    #validation-buttons Button { margin: 0 1 0 0; }
+    #validation-summary { margin: 1 0; color: $text-muted; }
     """
     BINDINGS = [("q", "quit", "Quit")]
 
     def __init__(self) -> None:
         super().__init__()
         self._repo_root = find_repo_root(Path(__file__).resolve())
-        self._recipes = discover_recipes(self._repo_root)
+        recipes = discover_recipes(self._repo_root)
+        recipes = [r for r in recipes if r.name not in _VALIDATION_LAYER_RECIPES]
+        self._recipes = [
+            *recipes,
+            Recipe(name="validation", doc="Run the ssis2sql validation framework."),
+        ]
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -180,6 +238,8 @@ class Ssis2SqlTUI(App):
 
     def _build_pane(self, recipe: Recipe) -> VerticalScroll:
         """Return the appropriate pane widget for a recipe."""
+        if recipe.name == "validation":
+            return ValidationPane(recipe)
         if recipe.name == "convert-tree":
             return ConvertTreePane(recipe)
         if recipe.name in ("convert", "inspect"):
@@ -196,6 +256,8 @@ class Ssis2SqlTUI(App):
             self.query_one(ContentSwitcher).current = f"pane-{bid[len('nav-'):]}"
         elif bid == "run-convert-tree":
             self._launch_convert_tree()
+        elif bid.removeprefix("run-") in _VALIDATION_LAYER_RECIPES:
+            self._launch_validation(bid[len("run-"):])
         elif bid.startswith("run-"):
             recipe = bid[len("run-"):]
             if recipe in ("convert", "inspect"):
@@ -211,6 +273,22 @@ class Ssis2SqlTUI(App):
         log = self.query_one(f"#log-{_slug(recipe)}", Log)
         log.clear()
         self._run_recipe(recipe, [], log)
+
+    # ------------------------------------------------------------------
+    # Validation-pane launcher — clears the log and parses a summary.
+    # ------------------------------------------------------------------
+
+    def _launch_validation(self, recipe: str) -> None:
+        log = self.query_one("#log-validation", Log)
+        summary = self.query_one("#validation-summary", Static)
+        log.clear()
+        summary.update("running…")
+        if recipe == "validate" and not (self._repo_root / ".env").is_file():
+            log.write_line(
+                "note: .env not found — the differential layer needs a SQL Server; "
+                "tests will skip without it. See README 'Validation > Configuration'."
+            )
+        self._run_validation(recipe, log, summary)
 
     # ------------------------------------------------------------------
     # convert-tree launcher — validates both inputs first.
@@ -270,6 +348,30 @@ class Ssis2SqlTUI(App):
             self.call_from_thread(log.write_line, line.rstrip("\n"))
         proc.wait()
         self.call_from_thread(log.write_line, f"[exit {proc.returncode}]")
+        return proc.returncode
+
+    @work(thread=True, exclusive=True, group="recipe-run")
+    def _run_validation(self, recipe: str, log: Log, summary: Static) -> int:
+        worker = get_current_worker()
+        cmd = ["just", recipe]
+        self.call_from_thread(log.write_line, f"$ {' '.join(cmd)}")
+        proc = subprocess.Popen(
+            cmd, cwd=self._repo_root,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+        )
+        assert proc.stdout is not None
+        lines: list[str] = []
+        for line in proc.stdout:
+            if worker.is_cancelled:
+                proc.terminate()
+                break
+            text = line.rstrip("\n")
+            lines.append(text)
+            self.call_from_thread(log.write_line, text)
+        proc.wait()
+        self.call_from_thread(log.write_line, f"[exit {proc.returncode}]")
+        self.call_from_thread(summary.update, parse_pytest_summary(lines))
         return proc.returncode
 
     # ------------------------------------------------------------------

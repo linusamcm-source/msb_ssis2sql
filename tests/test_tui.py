@@ -27,7 +27,13 @@ import pytest
 # ssis2sql/tui.py exists (Story 2, commit 3bfe4a9). Story 3 tests fail individually
 # because picker pane widgets (ct-input-tree, file-convert, etc.) and DtsxTree are
 # not yet added to tui.py — that is the Story 3 GREEN phase.
-from ssis2sql.tui import Recipe, Ssis2SqlTUI, discover_recipes, find_repo_root
+from ssis2sql.tui import (
+    Recipe,
+    Ssis2SqlTUI,
+    discover_recipes,
+    find_repo_root,
+    parse_pytest_summary,
+)
 
 # ---------------------------------------------------------------------------
 # Shared fixture: captured just --dump --dump-format json payload.
@@ -239,7 +245,8 @@ def _three_recipes() -> list[Recipe]:
 
 
 async def test_app_compose_one_button_per_recipe(monkeypatch, tmp_path):
-    """AC 1: sidebar has exactly one nav-button per non-excluded recipe."""
+    """AC 1: sidebar has one nav-button per non-excluded recipe, plus the
+    synthetic ``validation`` pane button the app always appends."""
     import ssis2sql.tui as tui_mod
     from textual.widgets import Button
 
@@ -249,9 +256,9 @@ async def test_app_compose_one_button_per_recipe(monkeypatch, tmp_path):
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
         sidebar_buttons = list(app.query("#sidebar Button"))
-        assert len(sidebar_buttons) == 3
+        assert len(sidebar_buttons) == 4
         ids = {b.id for b in sidebar_buttons}
-        assert ids == {"nav-clean", "nav-demo", "nav-test"}
+        assert ids == {"nav-clean", "nav-demo", "nav-test", "nav-validation"}
 
 
 async def test_app_compose_no_button_for_excluded_recipes(monkeypatch, tmp_path):
@@ -972,3 +979,180 @@ def test_justfile_convert_tree_single_quotes_block_injection(tmp_path):
         "command injection succeeded: the sentinel was created, "
         "meaning {{INPUT}} is not single-quoted in the convert-tree recipe"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — parse_pytest_summary: pure helper, scans captured pytest output
+# lines and returns a one-line human summary.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("lines,expected", [
+    (["===== 17 passed in 0.84s ====="], "17 passed"),
+    (["=== 2 failed, 15 passed, 1 skipped in 1.20s ==="],
+     "15 passed · 2 failed · 1 skipped"),
+    (["============ 12 skipped in 0.30s ============"], "12 skipped"),
+    (["=== 1 failed, 1 error in 0.50s ==="], "1 failed · 1 error"),
+    (["=== 8 passed, 4 xfailed in 2.0s ==="], "8 passed · 4 xfailed"),
+    (["collected 0 items", "no tests ran in 0.01s"], "no test summary found"),
+    (["random text", "nothing useful"], "no test summary found"),
+    ([], "no test summary found"),
+])
+def test_parse_pytest_summary(lines, expected):
+    assert parse_pytest_summary(lines) == expected
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 — Pilot tests for the Validation pane (plan §3.1).
+#
+# The three validation layers (validate-static, validate-unit, validate) move
+# into a dedicated ValidationPane; the synthetic "validation" recipe surfaces
+# it as the nav-validation sidebar button. Layer-button clicks route into
+# _run_validation, which subprocess.Popen-launches `just <recipe>` — every such
+# test monkeypatches subprocess.Popen with a hermetic fake so no real just runs.
+# ---------------------------------------------------------------------------
+
+
+async def test_validation_pane_is_present_and_navigable(monkeypatch, tmp_path):
+    """Plan §3.1(1): clicking nav-validation switches the ContentSwitcher to
+    pane-validation."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import ContentSwitcher
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _three_recipes())
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        await pilot.click("#nav-validation")
+        await pilot.pause()
+
+        assert app.query_one(ContentSwitcher).current == "pane-validation"
+
+
+async def test_layer_recipes_have_no_plain_sidebar_button(monkeypatch, tmp_path):
+    """Plan §3.1(2): the three layer recipes (validate-static, validate-unit,
+    validate) move into the pane and get no plain sidebar button; validate-cov
+    stays an ordinary RecipePane button, and nav-validation is always present."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Button
+
+    # A local recipe list (not _three_recipes) including all four validate-*
+    # recipes — three layers that must be folded away and validate-cov which
+    # must remain an ordinary button.
+    layer_recipes = [
+        Recipe(name="validate", doc="Run the differential layer."),
+        Recipe(name="validate-cov", doc="Run validation with coverage."),
+        Recipe(name="validate-static", doc="Run the static layer."),
+        Recipe(name="validate-unit", doc="Run the unit layer."),
+    ]
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: layer_recipes)
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        ids = {b.id for b in app.query("#sidebar Button")}
+        # The pane button and the ordinary validate-cov button are present.
+        assert "nav-validation" in ids
+        assert "nav-validate-cov" in ids
+        # The three layer recipes have no plain sidebar button.
+        assert "nav-validate-static" not in ids
+        assert "nav-validate-unit" not in ids
+        assert "nav-validate" not in ids
+
+
+async def test_static_layer_button_streams_into_log_and_summary(monkeypatch, tmp_path):
+    """Plan §3.1(3): clicking the Static layer button streams `just
+    validate-static` output into #log-validation, ends with [exit 0], and
+    #validation-summary renders the parsed count."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Log, Static
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _three_recipes())
+
+    # Hermetic subprocess: fake pytest stdout lines; returncode 0.
+    fake_proc = MagicMock()
+    fake_proc.stdout = iter([
+        "collected 17 items\n",
+        "===== 17 passed in 0.84s =====\n",
+    ])
+    fake_proc.returncode = 0
+    fake_proc.wait.return_value = 0
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: fake_proc)
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        await pilot.click("#nav-validation")
+        await pilot.pause()
+        await pilot.click("#run-validate-static")
+        # Give the thread worker time to finish.
+        await pilot.pause(delay=0.5)
+
+        log = app.query_one("#log-validation", Log)
+        all_lines = "\n".join(log.lines)
+        assert "17 passed" in all_lines      # streamed pytest summary line
+        assert "[exit 0]" in all_lines       # exit line written after proc.wait()
+
+        summary = app.query_one("#validation-summary", Static)
+        assert "17 passed" in str(summary.render())
+
+
+async def test_differential_button_warns_when_dotenv_absent(monkeypatch, tmp_path):
+    """Plan §3.1(4): with no .env in the repo root, clicking the Differential
+    layer button writes a `.env not found` note into #log-validation."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Log
+
+    # tmp_path has no .env file.
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _three_recipes())
+
+    # Hermetic subprocess — the run still proceeds; tests skip without SQL Server.
+    fake_proc = MagicMock()
+    fake_proc.stdout = iter(["===== 12 skipped in 0.30s =====\n"])
+    fake_proc.returncode = 0
+    fake_proc.wait.return_value = 0
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: fake_proc)
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        await pilot.click("#nav-validation")
+        await pilot.pause()
+        await pilot.click("#run-validate")
+        await pilot.pause(delay=0.5)
+
+        log = app.query_one("#log-validation", Log)
+        all_lines = "\n".join(log.lines)
+        assert "note: .env not found" in all_lines
+
+
+async def test_differential_button_no_warning_when_dotenv_present(monkeypatch, tmp_path):
+    """Plan §3.1(5): with a .env present in the repo root, clicking the
+    Differential layer button does NOT write the `.env not found` note."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Log
+
+    # A .env file exists in the repo root — no warning should be emitted.
+    (tmp_path / ".env").write_text("MSSQL_SERVER_ADDRESS=x\n", encoding="utf-8")
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _three_recipes())
+
+    # Hermetic subprocess — same fake as the absent-.env test.
+    fake_proc = MagicMock()
+    fake_proc.stdout = iter(["===== 12 skipped in 0.30s =====\n"])
+    fake_proc.returncode = 0
+    fake_proc.wait.return_value = 0
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: fake_proc)
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        await pilot.click("#nav-validation")
+        await pilot.pause()
+        await pilot.click("#run-validate")
+        await pilot.pause(delay=0.5)
+
+        log = app.query_one("#log-validation", Log)
+        all_lines = "\n".join(log.lines)
+        assert "note: .env not found" not in all_lines
