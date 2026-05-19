@@ -27,6 +27,11 @@ inspect FILE:
 demo:
     .venv/bin/python -m ssis2sql convert examples/sales_etl.dtsx
 
+# Recursively convert every .dtsx under INPUT into OUTPUT, mirroring the input tree.
+# Usage: just convert-tree path/to/input path/to/output
+convert-tree INPUT OUTPUT:
+    .venv/bin/python -m ssis2sql convert-tree {{INPUT}} {{OUTPUT}}
+
 # Convert every .dtsx under examples/samples into generated_scripts/*.sql.
 # Build copies under bin/ are skipped. Warnings are embedded in each .sql header.
 convert-samples:

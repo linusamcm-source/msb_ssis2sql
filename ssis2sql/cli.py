@@ -1,10 +1,11 @@
-"""Command-line interface: ``ssis2sql convert`` and ``ssis2sql inspect``."""
+"""Command-line interface: ``ssis2sql convert``, ``ssis2sql inspect``, and ``ssis2sql convert-tree``."""
 from __future__ import annotations
 
 import argparse
 import pathlib
 import sys
 
+from .batch import convert_tree
 from .errors import Ssis2SqlError
 from .generator import ConvertOptions, convert_package
 from .observability import configure_logging
@@ -41,6 +42,16 @@ def build_parser() -> argparse.ArgumentParser:
         "inspect", parents=[common], help="print the parsed component graph and exit"
     )
     inspect.add_argument("dtsx", help="path to the .dtsx file")
+
+    tree = sub.add_parser(
+        "convert-tree",
+        parents=[common],
+        help="Recursively convert a directory of .dtsx files into mirrored .sql files.",
+    )
+    tree.add_argument("input", help="Parent directory scanned recursively for .dtsx files.")
+    tree.add_argument("output", help="Directory the mirrored .sql tree is written into.")
+    tree.add_argument("--procedure", metavar="NAME", help="Wrap each script in a stored procedure.")
+    tree.add_argument("--no-header", action="store_true", help="Omit the generated header.")
 
     return parser
 
@@ -94,6 +105,22 @@ def _cmd_inspect(args) -> int:
     return 0
 
 
+def _cmd_convert_tree(args) -> int:
+    options = ConvertOptions(
+        wrap_in_procedure=bool(args.procedure),
+        procedure_name=args.procedure or "usp_Migrated_Package",
+        include_header=not args.no_header,
+    )
+    result = convert_tree(pathlib.Path(args.input), pathlib.Path(args.output), options)
+    for outcome in result.outcomes:
+        if outcome.ok:
+            print(f"converted {outcome.source} -> {outcome.destination}")
+        else:
+            print(f"failed    {outcome.source}: {outcome.error}", file=sys.stderr)
+    print(f"converted {result.converted}, failed {result.failed}")
+    return 1 if result.failed > 0 else 0
+
+
 def _log_level(verbosity: int) -> str:
     """Map ``-v`` occurrences to a loguru level: 0 quiet, 1 info, 2+ trace."""
     return {0: "WARNING", 1: "INFO"}.get(verbosity, "DEBUG")
@@ -108,6 +135,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_convert(args)
         if args.command == "inspect":
             return _cmd_inspect(args)
+        if args.command == "convert-tree":
+            return _cmd_convert_tree(args)
     except Ssis2SqlError as exc:
         print(f"ssis2sql: error: {exc}", file=sys.stderr)
         return 2

@@ -1,6 +1,9 @@
 """Tests for the ssis2sql command-line interface."""
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 import pytest
 
 from ssis2sql.cli import main
@@ -83,3 +86,33 @@ def test_module_entry_point_runs_main(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["ssis2sql"])   # no subcommand -> argparse exits
     with pytest.raises(SystemExit):
         runpy.run_module("ssis2sql", run_name="__main__")
+
+
+# ---------------------------------------------------------------------------
+# AC 7 — CLI convert-tree: exits 0 on success, exits exactly 1 on any failure.
+# ---------------------------------------------------------------------------
+
+_SALES_ETL_CLI = Path(__file__).parent.parent / "examples" / "sales_etl.dtsx"
+
+
+def test_cli_convert_tree_exits_zero_on_all_success(tmp_path):
+    """main(['convert-tree', input, output]) converts a tree and returns 0."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    shutil.copy(_SALES_ETL_CLI, input_dir / "pkg.dtsx")
+
+    rc = main(["convert-tree", str(input_dir), str(tmp_path / "output")])
+    assert rc == 0
+    assert (tmp_path / "output" / "pkg.sql").exists()
+
+
+def test_cli_convert_tree_exits_one_when_a_package_fails(tmp_path):
+    """main(['convert-tree', ...]) returns exactly 1 when the tree has a bad .dtsx."""
+    input_dir = tmp_path / "input"
+    input_dir.mkdir()
+    (input_dir / "broken.dtsx").write_text("<not valid", encoding="utf-8")
+    # Also add a valid file so we confirm isolation (converted >= 1, failed >= 1).
+    shutil.copy(_SALES_ETL_CLI, input_dir / "good.dtsx")
+
+    rc = main(["convert-tree", str(input_dir), str(tmp_path / "output")])
+    assert rc == 1, f"expected exit code 1, got {rc}"
