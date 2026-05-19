@@ -17,11 +17,11 @@ cov:
 
 # Convert a .dtsx file to T-SQL on stdout. Usage: just convert path/to/pkg.dtsx
 convert FILE:
-    .venv/bin/python -m ssis2sql convert {{FILE}}
+    .venv/bin/python -m ssis2sql convert '{{FILE}}'
 
 # Print the parsed component graph. Usage: just inspect path/to/pkg.dtsx
 inspect FILE:
-    .venv/bin/python -m ssis2sql inspect {{FILE}}
+    .venv/bin/python -m ssis2sql inspect '{{FILE}}'
 
 # Convert the bundled example package and print the consolidated SQL.
 demo:
@@ -30,7 +30,7 @@ demo:
 # Recursively convert every .dtsx under INPUT into OUTPUT, mirroring the input tree.
 # Usage: just convert-tree path/to/input path/to/output
 convert-tree INPUT OUTPUT:
-    .venv/bin/python -m ssis2sql convert-tree {{INPUT}} {{OUTPUT}}
+    .venv/bin/python -m ssis2sql convert-tree '{{INPUT}}' '{{OUTPUT}}'
 
 # Convert every .dtsx under examples/samples into generated_scripts/*.sql.
 # Build copies under bin/ are skipped. Warnings are embedded in each .sql header.
