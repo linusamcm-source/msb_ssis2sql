@@ -48,6 +48,10 @@ convert-samples:
     done < <(find examples/samples -name '*.dtsx' -not -path '*/bin/*' -print0 | sort -z)
     echo "done: ${count} package(s) converted into generated_scripts/"
 
+# Launch the Textual control-panel UI for ssis2sql.
+tui:
+    .venv/bin/python -m ssis2sql.tui
+
 # Remove the virtual environment, build artefacts, and caches.
 clean:
     rm -rf .venv .pytest_cache build dist *.egg-info
