@@ -1,0 +1,35 @@
+plan_path: docs/sprint-uv-migration.md
+target_branch: dev
+
+coverage_threshold: 80
+coverage_mode: new
+
+adversarial_iterations: 3
+adversarial_chunk_size: 5
+adversarial_model: opus
+
+review_fix_iterations: 3
+max_wall_clock_minutes: 240
+repomix_max_age_minutes: 240
+
+integration_diagram: off
+
+subskill_hooks:
+  phase-0: []
+  phase-2: []
+  phase-3: []
+  phase-4: []
+  phase-6: []
+  phase-7: []
+
+commands:
+  typecheck: "just typecheck"
+  lint: "just lint"
+  test: "just test"
+  coverage: "just cov"
+
+domain_agents: []
+test_writer_agent: general-purpose
+engineer_agent: python-pro
+ui_loop: none
+push_on_merge: false
