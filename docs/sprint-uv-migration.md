@@ -98,7 +98,13 @@ ssis2sql = "ssis2sql.cli:main"
 ssis2sql-web = "ssis2sql.web:main"
 
 [dependency-groups]
-dev = ["pytest>=7.0", "pytest-cov>=4.0", "pytest-asyncio>=1.3"]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-asyncio>=1.3",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
 web = ["textual-serve>=1.1"]
 validation = [
     "pyodbc>=5.1",
@@ -184,6 +190,14 @@ test:
 # Run the test suite with a line-coverage report.
 cov:
     uv run pytest --cov=ssis2sql --cov-report=term-missing
+
+# Static lint via ruff (PEP 8 + pyflakes).
+lint:
+    uv run ruff check .
+
+# Type-check the package with mypy.
+typecheck:
+    uv run mypy ssis2sql validation
 
 # Convert a .dtsx file to T-SQL and write to OUTFILE.
 # Usage: just migrate-file path/to/pkg.dtsx path/to/output.sql
@@ -352,12 +366,21 @@ Replace the `Install just` + `Install validation dependencies` steps with:
 
       - name: Sync project
         run: uv sync --locked
+
+      - name: Lint
+        run: just lint
+
+      - name: Typecheck
+        run: just typecheck
 ```
 
 The `--locked` flag (per `docs/guides/integration/github.md`) makes CI fail if
 `uv.lock` is stale, which is what we want. Keep the existing `just
 validate-static` and `just validate-unit` steps unchanged — they now resolve to
-`uv run pytest …` and pick up the synced env.
+`uv run pytest …` and pick up the synced env. `lint` and `typecheck` are
+non-blocking initially (allow `continue-on-error: true` on each step if the
+existing codebase is not yet ruff/mypy-clean — the first pass exists to
+establish a baseline, not to break CI).
 
 **Action-pinning note.** The `setup-uv` SHA above is the one from upstream
 docs; before commit, verify it points at `v8.1.0` by running
@@ -387,10 +410,11 @@ returned SHA matches.
 3. `ls -la .venv uv.lock .python-version` — three artifacts exist.
 4. `uv run python -c "import ssis2sql, validation, textual, textual_serve, loguru, pyodbc, pandas, pyarrow, sqlglot, yaml, dotenv"` — every dep importable from one env.
 5. `just test` — full suite green.
-6. `just validate-static && just validate-unit` — validation framework green.
-7. `just demo`, `just tui` (Ctrl-C immediately), `just web &` + `curl -s localhost:8000 | head` then kill — runtime entry points work.
-8. `just clean && just install` — round-trip.
-9. `git status` — every file listed below is the only one changed; nothing else drifted:
+6. `just lint` and `just typecheck` — establish baseline. Failures here do NOT block the sprint; they enter a follow-up ticket. The sprint deliverable is the *plumbing*, not codebase cleanliness.
+7. `just validate-static && just validate-unit` — validation framework green.
+8. `just demo`, `just tui` (Ctrl-C immediately), `just web &` + `curl -s localhost:8000 | head` then kill — runtime entry points work.
+9. `just clean && just install` — round-trip.
+10. `git status` — every file listed below is the only one changed; nothing else drifted:
    - `pyproject.toml`
    - `justfile`
    - `.python-version` (new)
@@ -403,8 +427,8 @@ returned SHA matches.
    - `docs/epic-1-batch-convert-tui.md`
    - `validation/capture/RUNBOOK.md`
    - `.github/workflows/<workflow>.yml`
-10. `git grep -n "\.venv/bin\|python3 -m venv"` — only matches should be inside `.repomix-output.xml` (stale snapshot, ignored) and inside `.venv*/` (ignored). No matches in tracked source/docs.
-11. `git grep -n "install-web\|install-validation\|pip install -e"` — same exclusion rule.
+11. `git grep -n "\.venv/bin\|python3 -m venv"` — only matches should be inside `.repomix-output.xml` (stale snapshot, ignored) and inside `.venv*/` (ignored). No matches in tracked source/docs.
+12. `git grep -n "install-web\|install-validation\|pip install -e"` — same exclusion rule.
 
 ### Anti-pattern guards (final sweep)
 
