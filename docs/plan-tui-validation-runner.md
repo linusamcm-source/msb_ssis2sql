@@ -1,7 +1,7 @@
-# Plan — Validation Runner pane for the ssis2sql TUI
+# Plan — Validation Runner pane for the msb_ssis2sql TUI
 
 **Goal:** Add a dedicated **Validation** pane to the existing Textual TUI
-(`ssis2sql/tui.py`) that runs the three layers of the `validation/` testing
+(`msb_ssis2sql/tui.py`) that runs the three layers of the `validation/` testing
 framework — Static, Unit, Differential — from inside the TUI, streams their
 output, and shows a parsed pass/fail/skip summary.
 
@@ -41,7 +41,7 @@ pane.
 
 | File | Change |
 |------|--------|
-| `ssis2sql/tui.py` | New `parse_pytest_summary` helper, new `ValidationPane`, new `_launch_validation` + `_run_validation` methods, app-wiring edits, CSS additions. |
+| `msb_ssis2sql/tui.py` | New `parse_pytest_summary` helper, new `ValidationPane`, new `_launch_validation` + `_run_validation` methods, app-wiring edits, CSS additions. |
 | `tests/test_tui.py` | New unit tests for `parse_pytest_summary`; new Pilot tests for the pane. |
 | `README.md` | One-line note that the validation layers are runnable from the TUI. |
 
@@ -130,7 +130,7 @@ Add to `tests/test_tui.py` (these are plain `def` tests, **not** `async`):
 
 ```python
 import pytest
-from ssis2sql.tui import parse_pytest_summary
+from msb_ssis2sql.tui import parse_pytest_summary
 
 @pytest.mark.parametrize("lines,expected", [
     (["===== 17 passed in 0.84s ====="], "17 passed"),
@@ -181,7 +181,7 @@ def parse_pytest_summary(lines: list[str]) -> str:
 
 - [ ] `.venv/bin/python -m pytest tests/test_tui.py -k parse_pytest_summary`
       — all 8 parametrised cases pass.
-- [ ] `grep -n "subprocess.run" ssis2sql/tui.py` — only the pre-existing hit in
+- [ ] `grep -n "subprocess.run" msb_ssis2sql/tui.py` — only the pre-existing hit in
       `discover_recipes` (`tui.py:35`); the helper added no new one.
 
 ### 1.4 Anti-pattern guards
@@ -304,7 +304,7 @@ def __init__(self) -> None:
     recipes = [r for r in recipes if r.name not in _VALIDATION_LAYER_RECIPES]
     self._recipes = [
         *recipes,
-        Recipe(name="validation", doc="Run the ssis2sql validation framework."),
+        Recipe(name="validation", doc="Run the msb_ssis2sql validation framework."),
     ]
 ```
 
@@ -373,13 +373,13 @@ to `height: 1fr` and would otherwise eat the pane.
 
 ### 2.6 Verification checklist
 
-- [ ] `.venv/bin/python -c "import ssis2sql.tui"` — imports clean.
-- [ ] `grep -n "from validation" ssis2sql/tui.py` and
-      `grep -n "import validation" ssis2sql/tui.py` — **zero** hits (subprocess
+- [ ] `.venv/bin/python -c "import msb_ssis2sql.tui"` — imports clean.
+- [ ] `grep -n "from validation" msb_ssis2sql/tui.py` and
+      `grep -n "import validation" msb_ssis2sql/tui.py` — **zero** hits (subprocess
       design; `tui.py` must not import the framework).
-- [ ] `grep -n "subprocess.Popen" ssis2sql/tui.py` — two hits: `_run_recipe`
+- [ ] `grep -n "subprocess.Popen" msb_ssis2sql/tui.py` — two hits: `_run_recipe`
       and the new `_run_validation`. No `subprocess.run` added.
-- [ ] `.venv/bin/python -m ssis2sql.tui` — TUI launches; a **validation**
+- [ ] `.venv/bin/python -m msb_ssis2sql.tui` — TUI launches; a **validation**
       button is in the sidebar; no `validate`, `validate-static`,
       `validate-unit` buttons; `validate-cov` and `install-validation` still
       present. (`q` quits.)
@@ -458,15 +458,15 @@ Copy the structure of `test_tui.py:288-316` for each. Monkeypatch
 - [ ] `just test` — full suite green, no regressions.
 - [ ] `just validate-static` and `just validate-unit` — still green
       (untouched, but confirm the recipes themselves were not disturbed).
-- [ ] `git diff --stat` — only `ssis2sql/tui.py`, `tests/test_tui.py`,
+- [ ] `git diff --stat` — only `msb_ssis2sql/tui.py`, `tests/test_tui.py`,
       `README.md`, and this plan file changed.
-- [ ] `git diff ssis2sql/tui.py` — `_run_recipe`, `discover_recipes`,
+- [ ] `git diff msb_ssis2sql/tui.py` — `_run_recipe`, `discover_recipes`,
       `RecipePane`, `ConvertTreePane`, `DtsxPickerPane` bodies unchanged;
       `Recipe`, `_EXCLUDED_RECIPES` unchanged.
-- [ ] Anti-pattern grep sweep on `ssis2sql/tui.py`:
-  - `grep -nE "import validation|from validation" ssis2sql/tui.py` → 0 hits.
-  - `grep -n "subprocess.run" ssis2sql/tui.py` → 1 hit (`discover_recipes`).
-  - `grep -n "pytest.main" ssis2sql/tui.py` → 0 hits.
+- [ ] Anti-pattern grep sweep on `msb_ssis2sql/tui.py`:
+  - `grep -nE "import validation|from validation" msb_ssis2sql/tui.py` → 0 hits.
+  - `grep -n "subprocess.run" msb_ssis2sql/tui.py` → 1 hit (`discover_recipes`).
+  - `grep -n "pytest.main" msb_ssis2sql/tui.py` → 0 hits.
 - [ ] Manual smoke: `just tui` → Validation pane → run each of the three
       layers; confirm streamed output, `[exit N]`, and a summary line for each.
       (Differential will show skips unless a SQL Server `.env` is configured —

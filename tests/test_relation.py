@@ -1,7 +1,7 @@
 """Tests for the Relation IR - the relational unit between transpilers."""
 from __future__ import annotations
 
-from ssis2sql.relation import RelColumn, Relation
+from msb_ssis2sql.relation import RelColumn, Relation
 
 
 def _sample_relation() -> Relation:

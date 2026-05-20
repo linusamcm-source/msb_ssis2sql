@@ -1,6 +1,6 @@
-"""Validation framework for differential testing of ssis2sql-converted T-SQL.
+"""Validation framework for differential testing of msb_ssis2sql-converted T-SQL.
 
-This package proves that the T-SQL produced by ``ssis2sql`` is
+This package proves that the T-SQL produced by ``msb_ssis2sql`` is
 behaviour-equivalent to the SSIS package it was converted from, by running
 both against identical seeded inputs and comparing their output tables.
 

@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from ssis2sql.errors import ParseError
-from ssis2sql.model import ComponentKind
-from ssis2sql.parser import parse_string
+from msb_ssis2sql.errors import ParseError
+from msb_ssis2sql.model import ComponentKind
+from msb_ssis2sql.parser import parse_string
 
 
 def _component(package, name):

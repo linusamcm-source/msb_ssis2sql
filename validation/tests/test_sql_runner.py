@@ -37,12 +37,12 @@ RunResult — dataclass
         Mapping of destination table name → read-back DataFrame.
         Empty dict when error is set.
     warnings: list[str]
-        Warnings from ``ssis2sql.convert_file`` (may be empty).
+        Warnings from ``msb_ssis2sql.convert_file`` (may be empty).
     error: str
         Non-empty when the SQL execution step failed; empty string on success.
 
 run(conn, package_dir, *, schema_types=None) -> RunResult
-    Convert ``package_dir/package.dtsx`` via ``ssis2sql.convert_file``,
+    Convert ``package_dir/package.dtsx`` via ``msb_ssis2sql.convert_file``,
     split on GO, execute each batch via ``conn.cursor()``, read back every
     ``dst_*`` table into a DataFrame, return RunResult.
     On any SQL/pyodbc exception: return RunResult(data={}, warnings=...,
@@ -192,7 +192,7 @@ def test_warnings_from_convert_file_propagated() -> None:
     (MagicMock default) and we skip actual result reading by asserting warnings
     only.
     """
-    from ssis2sql.generator import ConversionResult
+    from msb_ssis2sql.generator import ConversionResult
 
     synthetic_warnings = ["Component 'Foo' was skipped", "Unknown transform type: Bar"]
     fake_result = ConversionResult(
@@ -416,7 +416,7 @@ def test_run_readback_error_captured_in_result() -> None:
     data={}) — consistent with the "never raises" contract.
     SERVER-FREE.
     """
-    from ssis2sql.generator import ConversionResult
+    from msb_ssis2sql.generator import ConversionResult
 
     FakeError = _fake_pyodbc_error()
 
@@ -463,7 +463,7 @@ def test_run_invalid_sql_surfaces_structured_error(fresh_db: "pyodbc.Connection"
 
     INTEGRATION — skips cleanly when the server is unreachable.
     """
-    from ssis2sql.generator import ConversionResult
+    from msb_ssis2sql.generator import ConversionResult
 
     broken_sql = "SELECT * FROM nonexistent_garbage_table_xyz_story3;"
     fake_conversion = ConversionResult(

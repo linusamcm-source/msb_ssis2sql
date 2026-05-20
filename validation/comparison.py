@@ -257,7 +257,7 @@ def compare(
                     f"filter({div.kind}): {div.reason}"
                 )
             except Exception as exc:
-                from ssis2sql.observability import logger
+                from msb_ssis2sql.observability import logger
                 logger.warning(
                     "filter divergence {kind!r} NOT APPLIED — invalid filter_expr "
                     "{expr!r}: {exc}",
@@ -668,7 +668,7 @@ def _try_key_join_localisation(
                             "actual": a_val,
                         })
     except Exception as exc:
-        from ssis2sql.observability import logger
+        from msb_ssis2sql.observability import logger
         logger.debug(
             "key-join localisation failed for columns {cols}: {exc}",
             cols=key_cols,

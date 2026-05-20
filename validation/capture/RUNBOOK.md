@@ -67,7 +67,7 @@ Run from the repo root on the Windows capture host:
 
 ```powershell
 uv run python -c "
-from ssis2sql import convert_file, ConvertOptions
+from msb_ssis2sql import convert_file, ConvertOptions
 from pathlib import Path
 r = convert_file(Path('validation/corpus/passthrough_basic/package.dtsx'), ConvertOptions())
 print('SQL length:', len(r.sql)); print('Warnings:', r.warnings)

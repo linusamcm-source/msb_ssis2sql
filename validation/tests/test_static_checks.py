@@ -120,7 +120,7 @@ API contract pinned by these tests
     Returns ``{table_name: {col_name: sql_type_token}}``.
 
 ``must_cover_kinds() -> list[ComponentKind]``
-    Read ``ssis2sql.transforms.registry._REGISTRY`` and return every kind that:
+    Read ``msb_ssis2sql.transforms.registry._REGISTRY`` and return every kind that:
     - has a dedicated (non-``PassThroughFallbackTranspiler``) transpiler, AND
     - is not a ``FLATFILE_*`` kind.
 
@@ -168,7 +168,7 @@ def _build_corpus_coverage() -> dict[str, set]:
     """Return {pkg_name: set(ComponentKind)} from all 8 corpus packages."""
     import xml.etree.ElementTree as ET
 
-    from ssis2sql.component_types import resolve
+    from msb_ssis2sql.component_types import resolve
 
     coverage: dict[str, set] = {}
     for pkg_dir in sorted(_CORPUS_ROOT.iterdir()):
@@ -187,7 +187,7 @@ def _build_corpus_coverage() -> dict[str, set]:
 
 def _converted_sql(pkg_dir: Path) -> str:
     """Return the converted T-SQL for a corpus package (no-header, no proc)."""
-    from ssis2sql import ConvertOptions, convert_file
+    from msb_ssis2sql import ConvertOptions, convert_file
 
     result = convert_file(
         pkg_dir / "package.dtsx",
@@ -611,7 +611,7 @@ def test_completeness_must_cover_excludes_passthrough_fallback() -> None:
     PassThroughFallback-handled kinds (character_map, pivot, unpivot, script,
     scd, oledb_command, unknown) must not appear.  SERVER-FREE.
     """
-    from ssis2sql.component_types import ComponentKind
+    from msb_ssis2sql.component_types import ComponentKind
 
     passthrough_handled = frozenset({
         ComponentKind.CHARACTER_MAP,
@@ -636,7 +636,7 @@ def test_completeness_must_cover_excludes_flatfile_kinds() -> None:
     AC3 — the ODBC corpus uses ODBC sources only; FLATFILE kinds are not
     exercisable by design.  SERVER-FREE.
     """
-    from ssis2sql.component_types import ComponentKind
+    from msb_ssis2sql.component_types import ComponentKind
 
     kinds = must_cover_kinds()
     assert ComponentKind.FLATFILE_SOURCE not in kinds, (
@@ -669,7 +669,7 @@ def test_completeness_missing_kind_fails_loudly() -> None:
     AC3 key test — failure must be PRECISE: uncovered contains exactly the
     missing kind's value string.  SERVER-FREE.
     """
-    from ssis2sql.component_types import ComponentKind
+    from msb_ssis2sql.component_types import ComponentKind
 
     # Build full coverage then remove 'lookup' from every package.
     coverage = _build_corpus_coverage()
@@ -692,7 +692,7 @@ def test_completeness_missing_multiple_kinds_names_all() -> None:
     AC3 — uncovered is a complete list, not just the first gap found.
     SERVER-FREE.
     """
-    from ssis2sql.component_types import ComponentKind
+    from msb_ssis2sql.component_types import ComponentKind
 
     coverage = _build_corpus_coverage()
     dropped = {ComponentKind.LOOKUP, ComponentKind.AGGREGATE}

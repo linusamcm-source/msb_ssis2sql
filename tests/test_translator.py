@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from ssis2sql.errors import ExpressionError
-from ssis2sql.expressions import ast
-from ssis2sql.expressions.parser import parse_expression
-from ssis2sql.expressions.translator import Translator, default_column_resolver
+from msb_ssis2sql.errors import ExpressionError
+from msb_ssis2sql.expressions import ast
+from msb_ssis2sql.expressions.parser import parse_expression
+from msb_ssis2sql.expressions.translator import Translator, default_column_resolver
 
 
 def value(text: str) -> str:

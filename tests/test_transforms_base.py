@@ -1,4 +1,4 @@
-"""Tests for the stateless SQL helpers in ``ssis2sql.transforms.base``.
+"""Tests for the stateless SQL helpers in ``msb_ssis2sql.transforms.base``.
 
 These cover identifier sanitising, trailing-ORDER-BY stripping, table-name
 resolution, column re-shaping and source-column resolution. The pure helpers
@@ -7,12 +7,12 @@ need no build context; the rest are exercised against a minimally-wired
 """
 from __future__ import annotations
 
-from ssis2sql.dialect import TSqlDialect
-from ssis2sql.generator import ConvertOptions
-from ssis2sql.graph import DataFlowGraph
-from ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Port
-from ssis2sql.relation import RelColumn, Relation
-from ssis2sql.transforms.base import (
+from msb_ssis2sql.dialect import TSqlDialect
+from msb_ssis2sql.generator import ConvertOptions
+from msb_ssis2sql.graph import DataFlowGraph
+from msb_ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Port
+from msb_ssis2sql.relation import RelColumn, Relation
+from msb_ssis2sql.transforms.base import (
     merge_column,
     passthrough_columns,
     resolve_source_column,
@@ -21,7 +21,7 @@ from ssis2sql.transforms.base import (
     table_name,
     wrap_sql_command,
 )
-from ssis2sql.transforms.context import BuildContext
+from msb_ssis2sql.transforms.context import BuildContext
 
 
 # --------------------------------------------------------------------------- #

@@ -1,6 +1,6 @@
 # Sprint Plan — SSIS-vs-SQL Data Validation Framework
 
-**Repository:** `ssis2sql`
+**Repository:** `msb_ssis2sql`
 **Author:** generated 2026-05-18
 **Status:** in progress 2026-05-18 — Story 0 (Foundation) GREEN phase implementation underway
 **Companion:** `docs/sprint-coverage-95.md` (unit-coverage sprint — separate effort)
@@ -9,7 +9,7 @@
 
 ## 1. Objective
 
-Build a **validation framework** that proves the T-SQL produced by `ssis2sql`
+Build a **validation framework** that proves the T-SQL produced by `msb_ssis2sql`
 is *behaviour-equivalent* to the SSIS package it was converted from — by
 running both, against identical input data, and comparing the data each
 produces in its destination table.
@@ -85,7 +85,7 @@ Two execution contexts, one shared input, one shared comparator.
         ║  Remote SQL Server                  ║      ║  Remote SQL Server (from .env)      ║
         ║  1. provision schema.sql            ║      ║  1. provision schema.sql            ║
         ║  2. seed source tables from seed/   ║      ║  2. seed source tables from seed/   ║
-        ║  3. dtexec package.dtsx  (ODBC)     ║      ║  3. ssis2sql convert package.dtsx   ║
+        ║  3. dtexec package.dtsx  (ODBC)     ║      ║  3. msb_ssis2sql convert package.dtsx   ║
         ║  4. export dest table   ──────────┐ ║      ║  4. execute the .sql  (pyodbc)      ║
         ╚═══════════════════════════════════╪═╝      ║  5. read back dest table ─────────┐ ║
                                             │        ╚═══════════════════════════════════╪═╝
@@ -118,7 +118,7 @@ runs Story 5's capture, it **skips with a clear message** rather than failing.
 ## 4. Repository layout (new files)
 
 All framework code is a new top-level `validation/` package — isolated from
-`ssis2sql/` (production source) and `tests/` (existing unit tests).
+`msb_ssis2sql/` (production source) and `tests/` (existing unit tests).
 
 ```
 validation/
@@ -127,7 +127,7 @@ validation/
   conftest.py            # pytest: SQL Server connection fixture, corpus discovery
   sqlserver.py           # connection factory + per-test fresh database
   provisioning.py        # apply schema.sql DDL, seed source tables, truncate dest
-  sql_runner.py          # ssis2sql convert -> execute .sql -> read back dest
+  sql_runner.py          # msb_ssis2sql convert -> execute .sql -> read back dest
   comparison.py          # the diff engine: multiset/ordered, per-column policy
   ledger.py              # parse ledger.yaml, expected-divergence rules
   static_checks.py       # sqlglot parse-validity + completeness matrix
@@ -156,7 +156,7 @@ validation/
     test_static_checks.py
 ```
 
-`tests/` (existing, repo root) stays the `ssis2sql` unit suite — untouched.
+`tests/` (existing, repo root) stays the `msb_ssis2sql` unit suite — untouched.
 
 ---
 
@@ -204,7 +204,7 @@ The **must-be-covered set** is therefore exactly these 15 kinds: `OLEDB_SOURCE`,
 `CONDITIONAL_SPLIT`, `LOOKUP`, `AGGREGATE`, `SORT`, `UNION_ALL`, `MERGE`,
 `MERGE_JOIN`, `MULTICAST`, `ROW_COUNT`, `AUDIT`. Every one **must be exercised
 by at least one corpus package** (Story 7 enforces this by parsing the live
-`ssis2sql/` source). Story 7 derives the exclusions mechanically: a `ComponentKind` is
+`msb_ssis2sql/` source). Story 7 derives the exclusions mechanically: a `ComponentKind` is
 exempt if its registered transpiler class is `PassThroughFallbackTranspiler`,
 or if it is a `FLATFILE_*` kind.
 
@@ -454,7 +454,7 @@ framework's **unit tests**, not the differential tests.
 
 ## 10. Shared conventions (all stories)
 
-- **Never edit `ssis2sql/`.** This sprint adds a consumer, not a change to the
+- **Never edit `msb_ssis2sql/`.** This sprint adds a consumer, not a change to the
   transpiler. A failing comparison is a *finding to file*, not a licence to
   patch production source.
 - **Never edit existing `tests/` files** or `conftest.py` at repo root.
@@ -462,7 +462,7 @@ framework's **unit tests**, not the differential tests.
   parallel stories touch the same file.
 - Framework unit tests live in `validation/tests/` and must pass green.
 - Match repo style: `from __future__ import annotations`, module docstrings,
-  type hints, dataclasses for plain data, `loguru` via `ssis2sql.observability`
+  type hints, dataclasses for plain data, `loguru` via `msb_ssis2sql.observability`
   for any logging.
 - New runtime/test dependencies go in a **new** `validation` optional-dependency
   group — never forced on unit-test contributors.
@@ -528,8 +528,8 @@ wire `just` recipes, define config.
   - `validate-static` → `.venv/bin/python -m pytest validation/test_static.py`
   - extend `install` (or add `install-validation`) to install `.[validation]`.
 - **Coverage scoping.** `pyproject.toml` currently has `[tool.coverage.run]`
-  with `source = ["ssis2sql"]` — that would force *every* coverage run
-  (including `validate-cov`) to measure `ssis2sql/` and report ≈0% for
+  with `source = ["msb_ssis2sql"]` — that would force *every* coverage run
+  (including `validate-cov`) to measure `msb_ssis2sql/` and report ≈0% for
   `validation/`, so the 80% gate would read the wrong package. Story 0 must
   **remove the `source` key** and instead set an `omit` list, so the
   `validation` coverage figure is not diluted by files the unit suite never
@@ -545,7 +545,7 @@ wire `just` recipes, define config.
   test files and `conftest.py` (test infrastructure, not source);
   `validation/capture/capture.py` is source and stays measured (Story 5
   unit-tests it). Keep `[tool.coverage.report]`. Each recipe passes its own
-  `--cov=<pkg>` flag — the existing `cov` recipe already passes `--cov=ssis2sql`,
+  `--cov=<pkg>` flag — the existing `cov` recipe already passes `--cov=msb_ssis2sql`,
   so it is unaffected; `validate-cov` passes `--cov=validation`.
 - Document the **system prerequisite** (not pip-installable) in a comment and in
   the README later: Microsoft ODBC Driver 18 — macOS
@@ -562,7 +562,7 @@ wire `just` recipes, define config.
 - `pyproject.toml` still contains `testpaths = ["tests"]` and `addopts = "-q"`
   in `[tool.pytest.ini_options]`; bare `pytest` collects only `tests/`.
 - `just validate-cov` reports coverage for `validation/*` modules (not
-  `ssis2sql/*`); `[tool.coverage.run]` no longer pins `source` to `ssis2sql`.
+  `msb_ssis2sql/*`); `[tool.coverage.run]` no longer pins `source` to `msb_ssis2sql`.
 
 **Definition of done.** Skeleton committed; deps resolve; recipes present;
 existing suite green.
@@ -664,7 +664,7 @@ seeded database, and read back the destination tables.
 
 **Developer notes.**
 
-- Convert in-process via `ssis2sql.convert_file` with
+- Convert in-process via `msb_ssis2sql.convert_file` with
   `ConvertOptions(wrap_in_procedure=False, include_header=False)`:
   - **no procedure** — wrapping yields `CREATE OR ALTER PROCEDURE`, which only
     *defines* the proc; we want the statements executed directly;
@@ -802,8 +802,8 @@ and ledgers, covering every transpiler and the expression language.
   in SSDT; keep them minimal — just enough to exercise the target component.
 - Authoring reference: `examples/sales_etl.dtsx` (the existing rich worked
   example) and the parser tests show the `.dtsx` structures the parser accepts.
-  Confirm each authored package **parses** (`ssis2sql inspect <pkg>`) and
-  **transpiles** (`ssis2sql convert <pkg>`) before considering it done.
+  Confirm each authored package **parses** (`msb_ssis2sql inspect <pkg>`) and
+  **transpiles** (`msb_ssis2sql convert <pkg>`) before considering it done.
 - `schema.sql`: DDL for every `src_*`, `ref_*`, `dst_*` table. Column types are
   the comparison's type authority — choose them deliberately (`int`,
   `decimal(18,4)`, `nvarchar(n)`, `datetime2`, `bit`).
@@ -838,7 +838,7 @@ source-derived completeness matrix.
 
 **Developer notes.**
 
-- **Parse-validity.** For each corpus package, `ssis2sql convert` then
+- **Parse-validity.** For each corpus package, `msb_ssis2sql convert` then
   `sqlglot.parse(sql, dialect="tsql")`. A parse error = `FAIL` with the
   offending statement. Cheap, instant, catches gross regressions with no database.
 - **Column lineage.** For each corpus package, build a `schema` mapping
@@ -857,27 +857,27 @@ source-derived completeness matrix.
   fails to resolve, or a projection that does not match the `dst_*` DDL, is a
   `FAIL`.
 - **Completeness matrix.** Assert structural invariants by parsing the **live
-  `ssis2sql/` source — not** a repomix snapshot. `.repomix-output.xml` is a
+  `msb_ssis2sql/` source — not** a repomix snapshot. `.repomix-output.xml` is a
   Claude-Code session artefact: gitignored, absent from a fresh CI checkout,
   produced by the Node `repomix` tool (not a repo dependency), and — being
   Tree-sitter-compressed — it elides multi-line `@register(...)` decorators and
   even picks up the fake `ComponentKind.MY_COMPONENT` from the README. The
   matrix instead:
-  1. builds the registered-transpiler map by importing `ssis2sql.transforms`
-     and reading `ssis2sql.transforms.registry._REGISTRY`
+  1. builds the registered-transpiler map by importing `msb_ssis2sql.transforms`
+     and reading `msb_ssis2sql.transforms.registry._REGISTRY`
      (`dict[ComponentKind, type]`, at `registry.py:58`) — or, if an import-free
-     check is preferred, by `ast`-parsing `ssis2sql/transforms/*.py` (handles
-     multi-line decorators; scope the scan to `ssis2sql/transforms/` so test
+     check is preferred, by `ast`-parsing `msb_ssis2sql/transforms/*.py` (handles
+     multi-line decorators; scope the scan to `msb_ssis2sql/transforms/` so test
      fakes and README snippets are excluded);
-  2. asserts every `ComponentKind` in `ssis2sql/model.py` either appears in
+  2. asserts every `ComponentKind` in `msb_ssis2sql/model.py` either appears in
      `_REGISTRY` **or** is in an explicit `NO_TRANSPILER` allowlist;
   3. asserts every `ComponentKind` in the § 5 must-be-covered set — an entry
      in `_REGISTRY` whose transpiler class is **not**
      `PassThroughFallbackTranspiler` and which is not a `FLATFILE_*` kind — is
      exercised by ≥ 1 `validation/corpus/*` package. The corpus→kind mapping
      parses each `validation/corpus/*/package.dtsx` and resolves every
-     component's `componentClassID` via `ssis2sql.component_types.resolve()`
-     (or `ssis2sql.parser`); importing `ssis2sql` for this is expected and fine;
+     component's `componentClassID` via `msb_ssis2sql.component_types.resolve()`
+     (or `msb_ssis2sql.parser`); importing `msb_ssis2sql` for this is expected and fine;
   4. asserts the `validation/` package has the modules § 4 prescribes.
   This makes "the corpus keeps pace with the transpiler surface" a *test* — add
   a dedicated transpiler without a corpus package and CI goes red. No repomix,
@@ -962,7 +962,7 @@ all verified; `.github/workflows/validation.yml` created and YAML-valid
 | Remote SQL Server unreachable or not yet provisioned                                         | Connection fixture skips cleanly with a clear message; the sprint proceeds and live tests activate once the server is reachable.                         |
 | Connection credentials committed by accident                                                 | `.env` is gitignored; `config.py` reads only from the environment; CI supplies credentials as secrets.                                               |
 | Golden capture needs Windows the agent fleet lacks                                           | Sprint builds the harness + runbook; capture is a documented post-merge operator step; Story 8 skips cleanly until golden lands.                         |
-| Hand-authored `.dtsx` files malformed / not parser-accepted                                | Story 6 gates every package on `ssis2sql inspect` + `convert`; reference `examples/sales_etl.dtsx` and parser tests for accepted structures.       |
+| Hand-authored `.dtsx` files malformed / not parser-accepted                                | Story 6 gates every package on `msb_ssis2sql inspect` + `convert`; reference `examples/sales_etl.dtsx` and parser tests for accepted structures.       |
 | Comparison false-fails on type representation (`float` vs `Decimal`, datetime precision) | `schema.sql` is the single type authority; both sides coerced through it; per-column `float`/`datetime` tolerance policies.                        |
 | Non-deterministic columns (Audit,`GETDATE`)                                                | Ledger `exclude` / `non_null` policy — explicit, reviewed, per column.                                                                              |
 | Stale golden after a seed edit                                                               | `seed_checksum` in the manifest; integrity gate hard-fails before comparing.                                                                           |
@@ -970,7 +970,7 @@ all verified; `.github/workflows/validation.yml` created and YAML-valid
 | `GO` batch separators break `pyodbc` execution                                           | Provisioning and runner split on `GO` before executing.                                                                                                |
 | `INSERT INTO` appends → doubled rows on re-run                                            | `truncate_destinations` before every run, both contexts.                                                                                               |
 | ODBC Driver 18 encryption rejects the dev cert                                               | `TrustServerCertificate=yes` in the dev connection string (documented as dev-only).                                                                    |
-| Scope creep into "fix the transpiler"                                                        | Convention § 10: a failed comparison is a*finding to file*, never a `ssis2sql/` edit in this sprint.                                                |
+| Scope creep into "fix the transpiler"                                                        | Convention § 10: a failed comparison is a*finding to file*, never a `msb_ssis2sql/` edit in this sprint.                                                |
 
 ---
 
@@ -999,7 +999,7 @@ all verified; `.github/workflows/validation.yml` created and YAML-valid
 ## 14. How to run
 
 ```sh
-just install-validation     # venv + ssis2sql + the validation extra
+just install-validation     # venv + msb_ssis2sql + the validation extra
 just validate-static        # static layer — no database, seconds
 just validate-unit          # framework's own unit tests
 just validate               # full differential suite (needs SQL Server; skips until golden exists)
@@ -1032,7 +1032,7 @@ git add validation/corpus/<package_name>/golden && git commit
   Story 5 follow; Story 8 closes.
 - The 80% coverage gate applies to `validation/`'s **unit tests**
   (`validation/tests/`), not the Windows-dependent differential tests.
-- This sprint does **not** modify `ssis2sql/`. If a comparison surfaces a real
+- This sprint does **not** modify `msb_ssis2sql/`. If a comparison surfaces a real
   transpiler bug, file it — a separate fix sprint owns the change.
 
 ```

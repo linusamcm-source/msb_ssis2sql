@@ -1,4 +1,4 @@
-"""Tests for ssis2sql.web — the textual-serve wrapper.
+"""Tests for msb_ssis2sql.web — the textual-serve wrapper.
 
 The Server.serve() call binds a socket and blocks, so it is monkeypatched out.
 The tests cover argparse defaults, custom --host/--port routing, and the
@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from ssis2sql import web
+from msb_ssis2sql import web
 
 
 def test_build_parser_defaults() -> None:
@@ -48,8 +48,8 @@ def test_main_passes_args_to_server(monkeypatch: pytest.MonkeyPatch) -> None:
     assert rc == 0
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 8123
-    assert captured["title"] == "ssis2sql"
-    assert "ssis2sql.tui" in str(captured["command"])
+    assert captured["title"] == "msb_ssis2sql"
+    assert "msb_ssis2sql.tui" in str(captured["command"])
     assert captured["serve_called"] is True
 
 

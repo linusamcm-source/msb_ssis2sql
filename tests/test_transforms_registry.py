@@ -1,12 +1,12 @@
-"""Tests for ``ssis2sql.transforms.registry``.
+"""Tests for ``msb_ssis2sql.transforms.registry``.
 
 These cover the :class:`Transpiler` ABC, the :func:`register` decorator and
-:func:`get_transpiler`. Importing ``ssis2sql.transforms`` (the package) has the
+:func:`get_transpiler`. Importing ``msb_ssis2sql.transforms`` (the package) has the
 side effect of registering every real transpiler, so the real-kind lookups
 below resolve against that populated registry.
 
 The dummy-registration tests deliberately register against a throwaway local
-``Enum`` rather than a real :class:`~ssis2sql.model.ComponentKind`, so the
+``Enum`` rather than a real :class:`~msb_ssis2sql.model.ComponentKind`, so the
 shared ``_REGISTRY`` is never mutated and the full suite stays unaffected.
 """
 from __future__ import annotations
@@ -16,9 +16,9 @@ from enum import Enum
 import pytest
 
 # Importing the package registers every real transpiler against the registry.
-import ssis2sql.transforms  # noqa: F401
-from ssis2sql.model import Component, ComponentKind
-from ssis2sql.transforms.registry import Transpiler, get_transpiler, register
+import msb_ssis2sql.transforms  # noqa: F401
+from msb_ssis2sql.model import Component, ComponentKind
+from msb_ssis2sql.transforms.registry import Transpiler, get_transpiler, register
 
 
 class _FakeKind(Enum):

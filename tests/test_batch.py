@@ -1,4 +1,4 @@
-"""Tests for ssis2sql.batch — Story 1.
+"""Tests for msb_ssis2sql.batch — Story 1.
 
 Every test maps to one Story 1 Acceptance Criterion; the mapping is noted inline.
 """
@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 # This import will raise ModuleNotFoundError until GREEN is implemented.
-from ssis2sql.batch import BatchResult, FileOutcome, convert_tree
+from msb_ssis2sql.batch import BatchResult, FileOutcome, convert_tree
 
 # Path to the real .dtsx used as "valid package content" across tests.
 _SALES_ETL = Path(__file__).parent.parent / "examples" / "sales_etl.dtsx"

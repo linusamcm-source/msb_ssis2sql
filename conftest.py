@@ -1,7 +1,7 @@
 """Root pytest configuration.
 
 Living at the repository root, this file guarantees the root is on ``sys.path``
-so ``import ssis2sql`` resolves without an editable install. It also exposes
+so ``import msb_ssis2sql`` resolves without an editable install. It also exposes
 fixtures shared across the test modules.
 """
 from __future__ import annotations
@@ -22,6 +22,6 @@ def example_path() -> str:
 @pytest.fixture
 def example_package():
     """The bundled example package, parsed."""
-    from ssis2sql.parser import parse_file
+    from msb_ssis2sql.parser import parse_file
 
     return parse_file(str(EXAMPLE_DTSX))

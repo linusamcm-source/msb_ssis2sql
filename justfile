@@ -16,7 +16,7 @@ test:
 
 # Run the test suite with a line-coverage report.
 cov:
-    uv run pytest --cov=ssis2sql --cov-report=term-missing
+    uv run pytest --cov=msb_ssis2sql --cov-report=term-missing
 
 # Static lint via ruff (PEP 8 + pyflakes).
 lint:
@@ -24,25 +24,25 @@ lint:
 
 # Type-check the package with mypy.
 typecheck:
-    uv run mypy ssis2sql validation
+    uv run mypy msb_ssis2sql validation
 
 # Convert a .dtsx file to T-SQL and write to OUTFILE.
 # Usage: just migrate-file path/to/pkg.dtsx path/to/output.sql
 migrate-file FILE OUTFILE:
-    uv run python -m ssis2sql convert '{{FILE}}' -o '{{OUTFILE}}'
+    uv run python -m msb_ssis2sql convert '{{FILE}}' -o '{{OUTFILE}}'
 
 # Print the parsed component graph. Usage: just inspect path/to/pkg.dtsx
 inspect FILE:
-    uv run python -m ssis2sql inspect '{{FILE}}'
+    uv run python -m msb_ssis2sql inspect '{{FILE}}'
 
 # Convert the bundled example package and print the consolidated SQL.
 demo:
-    uv run python -m ssis2sql convert examples/sales_etl.dtsx
+    uv run python -m msb_ssis2sql convert examples/sales_etl.dtsx
 
 # Recursively convert every .dtsx under INPUT into OUTPUT, mirroring the input tree.
 # Usage: just migrate-directory path/to/input path/to/output
 migrate-directory INPUT OUTPUT:
-    uv run python -m ssis2sql convert-tree '{{INPUT}}' '{{OUTPUT}}'
+    uv run python -m msb_ssis2sql convert-tree '{{INPUT}}' '{{OUTPUT}}'
 
 # Convert every .dtsx under examples/samples into generated_scripts/*.sql.
 # Build copies under bin/ are skipped. Warnings are embedded in each .sql header.
@@ -54,18 +54,18 @@ convert-samples:
     while IFS= read -r -d '' src; do
         out="generated_scripts/$(basename "${src%.dtsx}").sql"
         echo "converting ${src#examples/samples/} -> ${out}"
-        uv run python -m ssis2sql convert "$src" -o "$out" -vv
+        uv run python -m msb_ssis2sql convert "$src" -o "$out" -vv
         count=$((count + 1))
     done < <(find examples/samples -name '*.dtsx' -not -path '*/bin/*' -print0 | sort -z)
     echo "done: ${count} package(s) converted into generated_scripts/"
 
-# Launch the Textual control-panel UI for ssis2sql.
+# Launch the Textual control-panel UI for msb_ssis2sql.
 tui:
-    uv run python -m ssis2sql.tui
+    uv run python -m msb_ssis2sql.tui
 
 # Serve the Textual TUI in a browser via textual-serve (default localhost:8000).
 web HOST="localhost" PORT="8000":
-    uv run python -m ssis2sql.web --host '{{HOST}}' --port '{{PORT}}'
+    uv run python -m msb_ssis2sql.web --host '{{HOST}}' --port '{{PORT}}'
 
 # Run the full differential validation suite (needs SQL Server; skips until golden exists).
 validate:

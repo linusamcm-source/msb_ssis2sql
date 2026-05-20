@@ -1,8 +1,8 @@
 """Tests for resolving an SSIS componentClassID to a ComponentKind."""
 from __future__ import annotations
 
-from ssis2sql.component_types import resolve
-from ssis2sql.model import ComponentKind
+from msb_ssis2sql.component_types import resolve
+from msb_ssis2sql.model import ComponentKind
 
 
 # --------------------------------------------------------------------------- #

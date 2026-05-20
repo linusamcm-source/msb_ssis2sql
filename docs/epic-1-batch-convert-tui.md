@@ -1,6 +1,6 @@
 # Epic 1 — Recursive DTSX→SQL Batch Converter + Textual Control-Panel TUI
 
-**Status:** Ready to execute. **Created:** 2026-05-19. **Repo:** `/Users/linus/Development/ssis`
+**Status:** Ready to execute. **Created:** 2026-05-19. **Repo:** `/Users/linus/Development/msb_ssis2sql`
 
 > Restructured 2026-05-19 from `plan-batch-convert-tui.md` into three `## Story` blocks for
 > a per-story team sprint. The original phase numbering survives only inside story bodies
@@ -26,12 +26,12 @@ Delivered across three stories:
 
 | Decision | Choice | Reason |
 |---|---|---|
-| Recursive walk | Python `Path.rglob("*.dtsx")` in a new `ssis2sql/batch.py` module | User requirement: platform-agnostic `pathlib`. Bash `find` (as in `convert-samples`) is **not** allowed here. |
-| How `convert-tree` is invoked | New `ssis2sql` CLI subcommand `convert-tree`, wrapped by a thin `just` recipe | Matches existing `convert`/`inspect` pattern; keeps logic testable in Python. |
-| Conversion engine | Reuse `ssis2sql.generator.convert_file()` — **do not** write a new converter | Converter already exists and is tested. |
+| Recursive walk | Python `Path.rglob("*.dtsx")` in a new `msb_ssis2sql/batch.py` module | User requirement: platform-agnostic `pathlib`. Bash `find` (as in `convert-samples`) is **not** allowed here. |
+| How `convert-tree` is invoked | New `msb_ssis2sql` CLI subcommand `convert-tree`, wrapped by a thin `just` recipe | Matches existing `convert`/`inspect` pattern; keeps logic testable in Python. |
+| Conversion engine | Reuse `msb_ssis2sql.generator.convert_file()` — **do not** write a new converter | Converter already exists and is tested. |
 | TUI ↔ recipe coupling | TUI shells out to `just <recipe> [args]` as a subprocess | User requirement: "a justfile command that is called by the Textual UI". The TUI is a `just` launcher. |
 | Left-hand tabs | `ContentSwitcher` + a `Vertical` of `Button`s docked left (`dock: left`) | **Textual has no left-side tab placement** — verified, see Reference. `TabbedContent` is top-docked only. |
-| TUI location | New standalone module `ssis2sql/tui.py`, run via `python -m ssis2sql.tui` | Keeps the `textual` import out of the core `ssis2sql` CLI. |
+| TUI location | New standalone module `msb_ssis2sql/tui.py`, run via `python -m msb_ssis2sql.tui` | Keeps the `textual` import out of the core `msb_ssis2sql` CLI. |
 | TUI CSS | Inline `CSS` class attribute (not `CSS_PATH`) | Avoids shipping a `.tcss` data file with the package. |
 | Recipe discovery | Parse `just --dump --dump-format json` at startup | Buttons stay in sync with the `justfile` automatically. |
 | `textual` dependency | Add to `[project] dependencies` in `pyproject.toml` | So both `just install` and `just tui` work with no extra flags. |
@@ -46,7 +46,7 @@ Delivered across three stories:
 Two reference sources were generated for this plan. **Read the cited ranges before
 writing code.**
 
-- `.repomix-output.xml` — pack of *this* repo (`ssis2sql`).
+- `.repomix-output.xml` — pack of *this* repo (`msb_ssis2sql`).
 - `.repomix-textual.xml` — pack of the Textual framework (`github.com/Textualize/textual`,
   5.8 MB, 855 files). Generated with:
   ```
@@ -56,23 +56,23 @@ writing code.**
   ```
   It is large — grep / line-offset Read it, never read it whole.
 
-## Allowed APIs — `ssis2sql` (this repo)
+## Allowed APIs — `msb_ssis2sql` (this repo)
 
 | Symbol | Location | Signature / fields |
 |---|---|---|
-| `convert_file` | `ssis2sql/generator.py:49` | `convert_file(path: str \| pathlib.Path, options: ConvertOptions \| None = None) -> ConversionResult` |
-| `ConvertOptions` | `ssis2sql/generator.py:25` | dataclass: `wrap_in_procedure: bool=False`, `procedure_name: str="usp_Migrated_Package"`, `include_header: bool=True` |
-| `ConversionResult` | `ssis2sql/generator.py:34` | dataclass: `sql: str`, `warnings: list[str]`, `package: Package \| None`. `__str__` returns `.sql`. **These are the only three fields — do not invent others.** |
-| `parse_file` | `ssis2sql/parser.py:99` | `parse_file(path: str \| pathlib.Path) -> Package` |
-| `@logged`, `logger` | `ssis2sql/observability.py` | decorator + loguru logger; existing modules use it on public functions |
-| `Ssis2SqlError` | `ssis2sql/errors.py` | base exception; CLI `main()` catches `Ssis2SqlError` **and** `OSError` and exits 2 |
-| CLI argparse setup | `ssis2sql/cli.py:14-45` | `convert` subparser to copy from; shared `-v/-vv`, `-o/--output`, `--procedure`, `--no-header` flags live here |
+| `convert_file` | `msb_ssis2sql/generator.py:49` | `convert_file(path: str \| pathlib.Path, options: ConvertOptions \| None = None) -> ConversionResult` |
+| `ConvertOptions` | `msb_ssis2sql/generator.py:25` | dataclass: `wrap_in_procedure: bool=False`, `procedure_name: str="usp_Migrated_Package"`, `include_header: bool=True` |
+| `ConversionResult` | `msb_ssis2sql/generator.py:34` | dataclass: `sql: str`, `warnings: list[str]`, `package: Package \| None`. `__str__` returns `.sql`. **These are the only three fields — do not invent others.** |
+| `parse_file` | `msb_ssis2sql/parser.py:99` | `parse_file(path: str \| pathlib.Path) -> Package` |
+| `@logged`, `logger` | `msb_ssis2sql/observability.py` | decorator + loguru logger; existing modules use it on public functions |
+| `Ssis2SqlError` | `msb_ssis2sql/errors.py` | base exception; CLI `main()` catches `Ssis2SqlError` **and** `OSError` and exits 2 |
+| CLI argparse setup | `msb_ssis2sql/cli.py:14-45` | `convert` subparser to copy from; shared `-v/-vv`, `-o/--output`, `--procedure`, `--no-header` flags live here |
 | pytest fixtures | `conftest.py` (repo root) | `example_path` → `examples/sales_etl.dtsx`; `example_package` → parsed `Package` |
 
-CLI invocation: `python -m ssis2sql convert <dtsx> -o <out>`. Console-script `ssis2sql`
+CLI invocation: `python -m msb_ssis2sql convert <dtsx> -o <out>`. Console-script `msb_ssis2sql`
 registered at `pyproject.toml` `[project.scripts]`.
 
-> Every `ssis2sql` symbol, line number, and field list above is a **plan claim about the
+> Every `msb_ssis2sql` symbol, line number, and field list above is a **plan claim about the
 > repo as it was packed**. Engineers and reviewers must re-verify each against the live
 > source (`.repomix-output.xml` / direct Read) before relying on it — line numbers drift.
 
@@ -152,18 +152,18 @@ Independently shippable.
 
 ### Files
 
-- **New:** `ssis2sql/batch.py`
+- **New:** `msb_ssis2sql/batch.py`
 - **New:** `tests/test_batch.py`
-- **Edit:** `ssis2sql/cli.py` — add a `convert-tree` subcommand
+- **Edit:** `msb_ssis2sql/cli.py` — add a `convert-tree` subcommand
 - **Edit:** `justfile` — add a `convert-tree` recipe
 - **Edit:** `tests/test_cli.py` — add a `convert-tree` CLI test
 
 ### What to implement
 
-#### §1.1 `ssis2sql/batch.py`
+#### §1.1 `msb_ssis2sql/batch.py`
 
-Before writing: Read `ssis2sql/generator.py:1-60` (for `convert_file`, `ConvertOptions`,
-`ConversionResult`) and `ssis2sql/observability.py` (for the `@logged` decorator usage,
+Before writing: Read `msb_ssis2sql/generator.py:1-60` (for `convert_file`, `ConvertOptions`,
+`ConversionResult`) and `msb_ssis2sql/observability.py` (for the `@logged` decorator usage,
 as applied in `generator.py:48`).
 
 Skeleton to adapt:
@@ -247,9 +247,9 @@ Notes:
 - Skip-dir check uses `rel.parts` so `examples/.../bin/...` packages are excluded — this
   matches the existing `convert-samples` behaviour.
 
-#### §1.2 `convert-tree` CLI subcommand — `ssis2sql/cli.py`
+#### §1.2 `convert-tree` CLI subcommand — `msb_ssis2sql/cli.py`
 
-Read `ssis2sql/cli.py` fully first. **Copy the structure of the existing `convert`
+Read `msb_ssis2sql/cli.py` fully first. **Copy the structure of the existing `convert`
 subparser and its handler `_cmd_convert`** — do not invent a new CLI style. (Verify the
 exact line numbers against the live file; the Reference cites `cli.py:14-45` for argparse
 setup, but confirm before relying on it.)
@@ -280,7 +280,7 @@ Add after the `convert-samples` recipe:
 # Recursively convert every .dtsx under INPUT into OUTPUT, mirroring the input tree.
 # Usage: just convert-tree path/to/input path/to/output
 convert-tree INPUT OUTPUT:
-    .venv/bin/python -m ssis2sql convert-tree {{INPUT}} {{OUTPUT}}
+    .venv/bin/python -m msb_ssis2sql convert-tree {{INPUT}} {{OUTPUT}}
 ```
 
 #### §1.4 Tests — `tests/test_batch.py`
@@ -304,7 +304,7 @@ Add one `convert-tree` test to `tests/test_cli.py` mirroring the existing CLI te
   `error` is a non-empty string) and does not abort the run — a sibling valid package in
   the same tree still converts successfully.
 - `convert_tree` accepts `str` and `pathlib.Path` for both `input_root` and `output_root`.
-- The `ssis2sql convert-tree <input> <output>` CLI subcommand converts a tree, prints one
+- The `msb_ssis2sql convert-tree <input> <output>` CLI subcommand converts a tree, prints one
   line per file and a final `converted N, failed M` summary, exits `1` when any file
   failed and `0` otherwise.
 - `just convert-tree INPUT OUTPUT` runs the `convert-tree` CLI subcommand against a real
@@ -312,19 +312,19 @@ Add one `convert-tree` test to `tests/test_cli.py` mirroring the existing CLI te
 
 ### Definition of Done
 
-- `ssis2sql/batch.py` exists with `convert_tree`, `BatchResult`, `FileOutcome`; recursion
-  is `pathlib.Path.rglob` — `grep -n "rglob" ssis2sql/batch.py` matches, no bash `find`.
-- `convert_tree` reuses `ssis2sql.generator.convert_file` — `grep -n "convert_file"
-  ssis2sql/batch.py` shows it being *called*, not reimplemented. No new conversion logic.
+- `msb_ssis2sql/batch.py` exists with `convert_tree`, `BatchResult`, `FileOutcome`; recursion
+  is `pathlib.Path.rglob` — `grep -n "rglob" msb_ssis2sql/batch.py` matches, no bash `find`.
+- `convert_tree` reuses `msb_ssis2sql.generator.convert_file` — `grep -n "convert_file"
+  msb_ssis2sql/batch.py` shows it being *called*, not reimplemented. No new conversion logic.
 - Output paths derive from `with_suffix(".sql")`, not string concatenation.
-- `ssis2sql/cli.py` has a `convert-tree` subparser modelled on the existing `convert`
+- `msb_ssis2sql/cli.py` has a `convert-tree` subparser modelled on the existing `convert`
   subparser; `main()` routes `"convert-tree"` to its handler.
 - `justfile` has a `convert-tree` recipe; `grep -n "find " justfile` shows the new recipe
   is **not** among the matches.
 - `tests/test_batch.py` covers every Acceptance Criterion; `tests/test_cli.py` has a new
   `convert-tree` test.
-- `python -m py_compile ssis2sql/batch.py ssis2sql/cli.py` — no syntax errors.
-- `just test` is green (no regressions); line coverage of `ssis2sql/batch.py` is ≥ 80%.
+- `python -m py_compile msb_ssis2sql/batch.py msb_ssis2sql/cli.py` — no syntax errors.
+- `just test` is green (no regressions); line coverage of `msb_ssis2sql/batch.py` is ≥ 80%.
 - `just convert-tree examples /tmp/ssis-verify` mirrors the `examples/` tree as `.sql`
   files; the summary line reports the count; `bin/`-nested packages are skipped.
 
@@ -345,7 +345,7 @@ and streams its output into the `Log`. This story handles the **parameter-less**
 - **Edit:** `pyproject.toml` — add `textual` to `[project] dependencies`; add
   `pytest-asyncio` to `[project.optional-dependencies] dev`; set `asyncio_mode` in
   `[tool.pytest.ini_options]`
-- **New:** `ssis2sql/tui.py`
+- **New:** `msb_ssis2sql/tui.py`
 - **Edit:** `justfile` — add a `tui` recipe
 - **New:** `tests/test_tui.py` — pure-helper unit tests **and** Textual pilot tests
 
@@ -362,7 +362,7 @@ and streams its output into the `Log`. This story handles the **parameter-less**
   functions run without a per-test marker.
 - Re-run `just install`.
 
-#### §2.2 `ssis2sql/tui.py`
+#### §2.2 `msb_ssis2sql/tui.py`
 
 Read these from `.repomix-textual.xml` before writing:
 - `docs/examples/widgets/content_switcher.py` (XML 24544) + `.tcss` (24612) — the
@@ -532,9 +532,9 @@ Implementation notes:
 #### §2.3 `justfile` recipe
 
 ```
-# Launch the Textual control-panel UI for ssis2sql.
+# Launch the Textual control-panel UI for msb_ssis2sql.
 tui:
-    .venv/bin/python -m ssis2sql.tui
+    .venv/bin/python -m msb_ssis2sql.tui
 ```
 
 #### §2.4 Tests — `tests/test_tui.py`
@@ -581,22 +581,22 @@ tui:
   minor; `[project.optional-dependencies] dev` includes `pytest-asyncio`;
   `[tool.pytest.ini_options]` sets `asyncio_mode = "auto"`. `just install` succeeds and
   `pip show textual` confirms install.
-- `ssis2sql/tui.py` exists with `find_repo_root`, `discover_recipes`, `Recipe`, and the
-  `Ssis2SqlTUI` app; `main()` runs it; `python -m ssis2sql.tui` is the entry point.
+- `msb_ssis2sql/tui.py` exists with `find_repo_root`, `discover_recipes`, `Recipe`, and the
+  `Ssis2SqlTUI` app; `main()` runs it; `python -m msb_ssis2sql.tui` is the entry point.
 - Left navigation is `ContentSwitcher` + `dock: left` — `grep -n
-  "tab-placement\|TabbedContent" ssis2sql/tui.py` is empty.
+  "tab-placement\|TabbedContent" msb_ssis2sql/tui.py` is empty.
 - `_run_recipe` is a `@work(thread=True, ...)` worker; every widget mutation inside it is
-  wrapped in `call_from_thread` — `grep -n "call_from_thread" ssis2sql/tui.py` covers
+  wrapped in `call_from_thread` — `grep -n "call_from_thread" msb_ssis2sql/tui.py` covers
   each `log.write_line` in the worker.
-- The log widget is `Log`, not `RichLog` — `grep -n "RichLog" ssis2sql/tui.py` is empty.
-- The core CLI stays Textual-free — `grep -rn "import textual" ssis2sql/cli.py
-  ssis2sql/__init__.py ssis2sql/generator.py` is empty.
+- The log widget is `Log`, not `RichLog` — `grep -n "RichLog" msb_ssis2sql/tui.py` is empty.
+- The core CLI stays Textual-free — `grep -rn "import textual" msb_ssis2sql/cli.py
+  msb_ssis2sql/__init__.py msb_ssis2sql/generator.py` is empty.
 - `justfile` has a `tui` recipe.
 - `tests/test_tui.py` exists with the pure-helper unit tests **and** Textual pilot tests
   covering compose, sidebar navigation, and the recipe runner.
-- `python -m py_compile ssis2sql/tui.py` — no syntax errors.
+- `python -m py_compile msb_ssis2sql/tui.py` — no syntax errors.
 - `just test` is green including the Story 1 tests (no regressions); line coverage of
-  `ssis2sql/tui.py` is ≥ 80%.
+  `msb_ssis2sql/tui.py` is ≥ 80%.
 
 ---
 
@@ -607,7 +607,7 @@ Replace the generic panes for `convert-tree`, `convert`, and `inspect` with
 
 ### Files
 
-- **Edit:** `ssis2sql/tui.py`
+- **Edit:** `msb_ssis2sql/tui.py`
 - **Edit:** `tests/test_tui.py` — pilot tests for the picker panes
 
 ### What to implement
@@ -711,20 +711,20 @@ Extend with pilot tests:
 
 ### Definition of Done
 
-- `ssis2sql/tui.py` updated: the `convert-tree` pane per §3.1, the `convert`/`inspect`
+- `msb_ssis2sql/tui.py` updated: the `convert-tree` pane per §3.1, the `convert`/`inspect`
   panes per §3.2, `_build_pane` branching on `recipe.name` per §3.3.
 - A `DtsxTree(DirectoryTree)` subclass overrides `filter_paths` — it is a method override
   on the subclass, not a constructor kwarg.
 - Handlers use the exact message classes `DirectoryTree.FileSelected` and
   `DirectoryTree.DirectorySelected` — `grep -n "FileSelected\|DirectorySelected"
-  ssis2sql/tui.py` confirms; no invented message names.
+  msb_ssis2sql/tui.py` confirms; no invented message names.
 - Re-rooting assigns `tree.path = Path(...)` — no call to a non-existent `set_path()`.
 - The two `convert-tree` trees are distinguished by `event.control.id`, not by widget
   order or a guessed attribute.
 - `tests/test_tui.py` extended with pilot tests for the picker panes (selection fills the
   `Input`, re-root on submit, invalid-path error line, `filter_paths` behaviour).
-- `python -m py_compile ssis2sql/tui.py` — no syntax errors.
-- `just test` is green (no regressions); line coverage of `ssis2sql/tui.py` is ≥ 80%
+- `python -m py_compile msb_ssis2sql/tui.py` — no syntax errors.
+- `just test` is green (no regressions); line coverage of `msb_ssis2sql/tui.py` is ≥ 80%
   including the Story 3 additions.
 
 ---

@@ -1,11 +1,11 @@
-# ssis2sql
+# msb_ssis2sql
 
 Convert SSIS (`.dtsx`) data-flow transformations into **consolidated,
 behaviour-equivalent T-SQL**.
 
 An SSIS Data Flow Task is a graph of components — a source, a chain of
 transformations, a destination — that SSIS executes row-buffer by row-buffer.
-`ssis2sql` reads that graph and re-expresses it as set-based SQL: one
+`msb_ssis2sql` reads that graph and re-expresses it as set-based SQL: one
 consolidated `WITH … INSERT INTO … SELECT` statement per destination, where
 each transformation is a common table expression (CTE) in the pipeline.
 
@@ -17,7 +17,7 @@ each transformation is a common table expression (CTE) in the pipeline.
 
 SSIS packages are XML and opaque. Migrating off SSIS, or simply understanding
 what a package *does*, means reading transformations one dialog box at a time.
-`ssis2sql` turns the whole data flow into a single SQL statement you can read,
+`msb_ssis2sql` turns the whole data flow into a single SQL statement you can read,
 diff, run, and version-control.
 
 ## Install
@@ -26,7 +26,7 @@ Prerequisite: [uv](https://docs.astral.sh/uv/getting-started/installation/)
 (`brew install uv` on macOS).
 
 ```sh
-just install            # one command — installs ssis2sql + every dependency group
+just install            # one command — installs msb_ssis2sql + every dependency group
 # or, manually:
 uv sync
 ```
@@ -46,10 +46,10 @@ need differential validation can skip the group entirely with
 ### Command line
 
 ```sh
-ssis2sql convert package.dtsx                 # T-SQL to stdout
-ssis2sql convert package.dtsx -o output.sql   # ... or to a file
-ssis2sql convert package.dtsx --procedure usp_Load   # wrap in a stored procedure
-ssis2sql inspect package.dtsx                 # print the parsed component graph
+msb_ssis2sql convert package.dtsx                 # T-SQL to stdout
+msb_ssis2sql convert package.dtsx -o output.sql   # ... or to a file
+msb_ssis2sql convert package.dtsx --procedure usp_Load   # wrap in a stored procedure
+msb_ssis2sql inspect package.dtsx                 # print the parsed component graph
 ```
 
 Try it on the bundled example:
@@ -61,7 +61,7 @@ just demo
 ### As a library
 
 ```python
-from ssis2sql import convert_file, ConvertOptions
+from msb_ssis2sql import convert_file, ConvertOptions
 
 result = convert_file("package.dtsx", ConvertOptions(wrap_in_procedure=True))
 print(result.sql)
@@ -72,20 +72,20 @@ for warning in result.warnings:
 ## Logging
 
 Every parse, conversion, and component transpiler is wrapped by the `@logged`
-decorator (`ssis2sql/observability.py`): each call is traced, and any exception
+decorator (`msb_ssis2sql/observability.py`): each call is traced, and any exception
 is logged with a full traceback before being re-raised. Logging is **off by
 default** — importing the library emits nothing.
 
 Turn it on from the CLI:
 
 ```sh
-ssis2sql convert -v package.dtsx     # -v: info-level    -vv: trace every call
+msb_ssis2sql convert -v package.dtsx     # -v: info-level    -vv: trace every call
 ```
 
 or as a library:
 
 ```python
-from ssis2sql import configure_logging, convert_file
+from msb_ssis2sql import configure_logging, convert_file
 
 configure_logging(level="DEBUG")
 convert_file("package.dtsx")
@@ -158,7 +158,7 @@ coerces between its boolean and integer worlds.
 
 ## Behaviour notes & limitations
 
-`ssis2sql` aims for behaviour equivalence and **flags every place it cannot
+`msb_ssis2sql` aims for behaviour equivalence and **flags every place it cannot
 guarantee it** — read the warnings (printed to stderr and embedded in the SQL
 header).
 
@@ -183,8 +183,8 @@ Adding support for a component is one self-contained file. Subclass
 `Transpiler`, register it against a `ComponentKind`, and build a relation:
 
 ```python
-from ssis2sql.model import ComponentKind
-from ssis2sql.transforms import Transpiler, register
+from msb_ssis2sql.model import ComponentKind
+from msb_ssis2sql.transforms import Transpiler, register
 
 @register(ComponentKind.MY_COMPONENT)
 class MyTranspiler(Transpiler):
@@ -200,7 +200,7 @@ Import the module from `transforms/__init__.py` so it self-registers.
 ## Project layout
 
 ```
-ssis2sql/
+msb_ssis2sql/
   parser.py            .dtsx XML  -> intermediate representation
   model.py             the IR dataclasses
   component_types.py   componentClassID -> ComponentKind
@@ -211,7 +211,7 @@ ssis2sql/
   dialect.py           T-SQL identifier quoting
   sqltypes.py          SSIS data-type codes -> T-SQL types
   observability.py     loguru logging: @logged / log_methods / instrument_module
-  cli.py               the `ssis2sql` command line
+  cli.py               the `msb_ssis2sql` command line
 examples/sales_etl.dtsx   a worked package exercising every transpiler
 tests/                    pytest suite
 ```
@@ -225,7 +225,7 @@ just test          # or: uv run pytest
 ## Validation
 
 The `validation/` tree is a differential test harness that verifies the
-`ssis2sql` transpiler's converted T-SQL produces identical results to the
+`msb_ssis2sql` transpiler's converted T-SQL produces identical results to the
 SSIS package's own execution.  It has three independent layers.
 
 ### Three layers
@@ -328,7 +328,7 @@ operator-provisioned SQL Server.
 ### Quick reference
 
 ```sh
-just install              # one command — installs ssis2sql + every dependency group
+just install              # one command — installs msb_ssis2sql + every dependency group
 just validate-static      # static checks — no SQL Server (< 1 s)
 just validate-unit        # unit tests — no SQL Server
 just validate-cov         # unit tests with coverage report

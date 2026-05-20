@@ -1,6 +1,6 @@
 # Sprint Plan — Python Test Coverage 76% → 95%
 
-**Repo:** `ssis2sql` · **Target branch:** `desloppify/code-health` · **Plan owner:** Linus McManamey
+**Repo:** `msb_ssis2sql` · **Target branch:** `desloppify/code-health` · **Plan owner:** Linus McManamey
 **Sprint type:** Test backfill (characterization tests against existing, working code — *not* TDD)
 **Coverage gate:** `--cov-fail-under=95`
 
@@ -8,7 +8,7 @@
 
 ## 1. Objective
 
-Raise `pytest` line coverage of the `ssis2sql` package from **76% to ≥95%** by adding
+Raise `pytest` line coverage of the `msb_ssis2sql` package from **76% to ≥95%** by adding
 test files only. **No production source file may be modified.** If a test would fail,
 that is either (a) a genuine bug — surface it to the team lead, do not fix it and do
 not encode the bug as correct — or (b) a wrong test assumption — fix the test.
@@ -16,7 +16,7 @@ not encode the bug as correct — or (b) a wrong test assumption — fix the tes
 ## 2. Baseline (measured 2026-05-18)
 
 ```
-pytest --cov=ssis2sql --cov-report=term-missing
+pytest --cov=msb_ssis2sql --cov-report=term-missing
 TOTAL  2061 stmts  499 miss  76%
 ```
 
@@ -93,7 +93,7 @@ Story 0 (infra + builders)  ──blocks──►  Story 1 ┐
 
 ## 5. Shared conventions — every agent reads this first
 
-1. **Never modify any file under `ssis2sql/`.** Tests only.
+1. **Never modify any file under `msb_ssis2sql/`.** Tests only.
 2. **Never edit an existing test file.** Create the one new file your story names.
 3. **Tests pass green on first run.** This is backfill against working code; a test
    asserts *current* behaviour. A red test means a real bug — report it, do not patch
@@ -108,7 +108,7 @@ Story 0 (infra + builders)  ──blocks──►  Story 1 ┐
 7. **No network, no clock, no randomness** in assertions. `NEWID()`/`SYSDATETIME()`
    appear as literal SQL text — assert the text, never execute it.
 8. **Target the exact uncovered lines.** Regenerate the gap map any time with:
-   `.venv/bin/python -m pytest --cov=ssis2sql --cov-report=term-missing -q`
+   `.venv/bin/python -m pytest --cov=msb_ssis2sql --cov-report=term-missing -q`
 9. **Deliver via SendMessage** to the team lead when the story's DoD is met — do not
    describe results inline only.
 
@@ -124,7 +124,7 @@ Story 0 (infra + builders)  ──blocks──►  Story 1 ┐
 - `pyproject.toml`: add coverage config so unreachable lines leave the denominator —
   ```toml
   [tool.coverage.run]
-  source = ["ssis2sql"]
+  source = ["msb_ssis2sql"]
 
   [tool.coverage.report]
   exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:", "raise NotImplementedError"]
@@ -132,7 +132,7 @@ Story 0 (infra + builders)  ──blocks──►  Story 1 ┐
 - `justfile`: add a `cov` recipe —
   ```
   cov:
-      .venv/bin/python -m pytest --cov=ssis2sql --cov-report=term-missing --cov-fail-under=95
+      .venv/bin/python -m pytest --cov=msb_ssis2sql --cov-report=term-missing --cov-fail-under=95
   ```
 - `tests/_builders.py`: factory helpers so Stories 2 & 3 build synthetic component
   graphs without XML. Generalise the private `_minimal_package()` in
@@ -142,7 +142,7 @@ Story 0 (infra + builders)  ──blocks──►  Story 1 ┐
   - `make_port(name, columns=...)`, `make_column(name, **kw)`
   - `single_flow_package(*components, paths=...)` → a `Package` with one `DataFlow`
   - `convert(package)` → thin wrapper over `convert_package` returning the result
-- Keep `_builders.py` import-light (only `ssis2sql.model`) and **not** itself a test
+- Keep `_builders.py` import-light (only `msb_ssis2sql.model`) and **not** itself a test
   module (leading underscore keeps pytest from collecting it).
 
 **Tasks**
@@ -186,9 +186,9 @@ Story 0 (infra + builders)  ──blocks──►  Story 1 ┐
   ```python
   import runpy, pytest
   def test_module_entry_point(monkeypatch):
-      monkeypatch.setattr("sys.argv", ["ssis2sql"])  # no subcommand → argparse exits 2
+      monkeypatch.setattr("sys.argv", ["msb_ssis2sql"])  # no subcommand → argparse exits 2
       with pytest.raises(SystemExit):
-          runpy.run_module("ssis2sql", run_name="__main__")
+          runpy.run_module("msb_ssis2sql", run_name="__main__")
   ```
 
 **Tasks** — write tests for: `build_parser` structure · `_log_level` mapping · convert
@@ -198,8 +198,8 @@ inspect dump · `ParseError`→exit 2 · `OSError`→exit 2 · `__main__` entry.
 **Acceptance criteria**
 - GIVEN `main(["convert", example])`, WHEN run, THEN it returns `0` and writes T-SQL to stdout.
 - GIVEN `main(["convert", example, "-o", path])`, WHEN run, THEN `path` holds the SQL and stderr notes the write.
-- GIVEN a missing `.dtsx`, WHEN `main` runs, THEN it returns `2` and prints `ssis2sql: error:` to stderr.
-- GIVEN `python -m ssis2sql` with no subcommand, WHEN run, THEN `SystemExit` is raised.
+- GIVEN a missing `.dtsx`, WHEN `main` runs, THEN it returns `2` and prints `msb_ssis2sql: error:` to stderr.
+- GIVEN `python -m msb_ssis2sql` with no subcommand, WHEN run, THEN `SystemExit` is raised.
 - `cli.py` ≥ 98%, `__main__.py` = 100% in the coverage report.
 
 **DoD:** `tests/test_cli.py` green, per-file targets met, SendMessage sent.
@@ -408,7 +408,7 @@ inside the one file with clear section comments.
 
 1. All seven stories complete; every new test file green.
 2. `just cov` reports **TOTAL ≥ 95%** and exits 0 (`--cov-fail-under=95` passes).
-3. **Zero diffs under `ssis2sql/`** — `git diff --stat ssis2sql/` is empty.
+3. **Zero diffs under `msb_ssis2sql/`** — `git diff --stat msb_ssis2sql/` is empty.
 4. No existing test file modified (`test_expressions.py`, `test_generator.py`,
    `test_observability.py`, `test_parser.py` unchanged).
 5. Any genuine bug found while writing tests is reported to the team lead as a

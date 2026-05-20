@@ -1,7 +1,7 @@
-# Plan — Three-tab restructure of the ssis2sql TUI
+# Plan — Three-tab restructure of the msb_ssis2sql TUI
 
 **Goal:** Replace the flat sidebar + single content-switcher layout in
-`ssis2sql/tui.py` with a Textual **`TabbedContent`** of three tabs —
+`msb_ssis2sql/tui.py` with a Textual **`TabbedContent`** of three tabs —
 **Migration**, **Validation**, **Configuration**. Each tab has its own left
 sub-sidebar of recipe buttons and its own content switcher. A new
 **`ConfigPane`** (a `.env` / SQL Server editor) is added to the Configuration
@@ -57,7 +57,7 @@ defaults to the Configuration tab** (maintenance catch-all).
 
 | File | Change |
 |------|--------|
-| `ssis2sql/tui.py` | `read_env`/`write_env` helpers, `ConfigPane`, `TabbedContent` restructure of `compose`, per-tab routing, CSS. |
+| `msb_ssis2sql/tui.py` | `read_env`/`write_env` helpers, `ConfigPane`, `TabbedContent` restructure of `compose`, per-tab routing, CSS. |
 | `tests/test_tui.py` | Rework Pilot tests for the tab structure; new tests for `read_env`/`write_env`, `ConfigPane`, tab navigation. |
 | `README.md` | Update the one-line TUI note for the tabbed layout. |
 
@@ -164,7 +164,7 @@ class ConfigPane(VerticalScroll):
 
 ### 1.3 Verification
 - `.venv/bin/python -m pytest tests/test_tui.py -k "read_env or write_env"` — all pass.
-- `.venv/bin/python -c "import ssis2sql.tui"` — clean.
+- `.venv/bin/python -c "import msb_ssis2sql.tui"` — clean.
 
 ---
 
@@ -200,7 +200,7 @@ for r in recipes:                       # discovered, layer recipes already remo
         self._tab_recipes["configuration"].append(r)
 # Synthetic panes, first in their tab.
 self._tab_recipes["validation"].insert(
-    0, Recipe(name="validation", doc="Run the ssis2sql validation framework."))
+    0, Recipe(name="validation", doc="Run the msb_ssis2sql validation framework."))
 self._tab_recipes["configuration"].insert(
     0, Recipe(name="config", doc="Edit the .env SQL Server settings."))
 # recipe name -> tab id, for nav routing.
@@ -286,7 +286,7 @@ Keep `.pane-desc`, `Log`, `#validation-buttons*`, `#validation-summary` rules.
 Drop the old `#sidebar` / `#sidebar Button` / `#content` rules.
 
 ### 2.8 Verification
-- `import ssis2sql.tui` clean; `grep -nE "import validation|from validation"` → 0.
+- `import msb_ssis2sql.tui` clean; `grep -nE "import validation|from validation"` → 0.
 - Headless probe: every `nav-*` button exists; each `#content-<tab>` switcher
   exists; `#nav-validation` is in the Validation tab and reachable.
 
@@ -329,7 +329,7 @@ The flat-layout assumptions break: any test that queries `#sidebar`, the lone
 
 - `just test` — full suite green.
 - `just validate-static`, `just validate-unit` — still green (untouched).
-- `git diff --stat` — only `ssis2sql/tui.py`, `tests/test_tui.py`, `README.md`,
+- `git diff --stat` — only `msb_ssis2sql/tui.py`, `tests/test_tui.py`, `README.md`,
   this plan file.
 - Anti-pattern sweep on `tui.py`: 0 `import validation`, 1 `subprocess.run`,
   2 `subprocess.Popen`, 0 `pytest.main`.

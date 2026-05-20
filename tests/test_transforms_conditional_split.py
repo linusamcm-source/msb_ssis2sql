@@ -6,9 +6,9 @@ condition to preserve first-match-wins semantics.
 """
 from __future__ import annotations
 
-from ssis2sql.generator import convert_package
-from ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Path, Port
-from ssis2sql.transforms.conditional_split import ConditionalSplitTranspiler
+from msb_ssis2sql.generator import convert_package
+from msb_ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Path, Port
+from msb_ssis2sql.transforms.conditional_split import ConditionalSplitTranspiler
 
 
 def test_conditional_split_transpiler_is_registered():

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from ssis2sql.observability import (
+from msb_ssis2sql.observability import (
     configure_logging,
     instrument_module,
     log_methods,
@@ -14,12 +14,12 @@ from ssis2sql.observability import (
 
 @pytest.fixture
 def captured():
-    """Route ssis2sql logs into a list; restore the silent default afterwards."""
+    """Route msb_ssis2sql logs into a list; restore the silent default afterwards."""
     messages: list[str] = []
     configure_logging(level="DEBUG", sink=messages.append)
     yield messages
     logger.remove()
-    logger.disable("ssis2sql")
+    logger.disable("msb_ssis2sql")
 
 
 def test_returns_the_wrapped_value():

@@ -6,9 +6,9 @@ Column mapping comes from external metadata when present, else by name.
 """
 from __future__ import annotations
 
-from ssis2sql.generator import convert_package
-from ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Path, Port
-from ssis2sql.transforms.destination import DestinationTranspiler
+from msb_ssis2sql.generator import convert_package
+from msb_ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Path, Port
+from msb_ssis2sql.transforms.destination import DestinationTranspiler
 
 
 def test_destination_transpiler_is_registered():

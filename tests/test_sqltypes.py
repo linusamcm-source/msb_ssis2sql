@@ -1,8 +1,8 @@
 """Tests for SSIS data-type codes mapped onto T-SQL types."""
 from __future__ import annotations
 
-from ssis2sql.model import Column
-from ssis2sql.sqltypes import sql_string_literal, tsql_type, tsql_type_from_column
+from msb_ssis2sql.model import Column
+from msb_ssis2sql.sqltypes import sql_string_literal, tsql_type, tsql_type_from_column
 
 
 # --------------------------------------------------------------------------- #

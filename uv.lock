@@ -694,6 +694,61 @@ wheels = [
 ]
 
 [[package]]
+name = "msb-ssis2sql"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "loguru" },
+    { name = "pre-commit" },
+    { name = "textual" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
+validation = [
+    { name = "pandas" },
+    { name = "pyarrow" },
+    { name = "pyodbc" },
+    { name = "python-dotenv" },
+    { name = "pyyaml" },
+    { name = "sqlglot" },
+]
+web = [
+    { name = "textual-serve" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "loguru", specifier = ">=0.7" },
+    { name = "pre-commit", specifier = ">=4.6.0" },
+    { name = "textual", specifier = ">=8.2" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.10" },
+    { name = "pytest", specifier = ">=7.0" },
+    { name = "pytest-asyncio", specifier = ">=1.3" },
+    { name = "pytest-cov", specifier = ">=4.0" },
+    { name = "ruff", specifier = ">=0.5" },
+]
+validation = [
+    { name = "pandas", specifier = ">=3.0" },
+    { name = "pyarrow", specifier = ">=24.0" },
+    { name = "pyodbc", specifier = ">=5.3" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "sqlglot", specifier = ">=25.0" },
+]
+web = [{ name = "textual-serve", specifier = ">=1.1" }]
+
+[[package]]
 name = "multidict"
 version = "6.7.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1480,61 +1535,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/0f/64/89299aefc6ebdf4fc
 wheels = [
     { url = "https://files.pythonhosted.org/packages/88/4e/80705091aaf9c95e125d243f0aa871bc9f3670b4c9d963e6bad3b3dce8ff/sqlglot-30.8.0-py3-none-any.whl", hash = "sha256:af903378c331d5b72277a1b41118f07bc3e50cf4478e2d47eed12c96ee6a22a4", size = 687831, upload-time = "2026-05-13T09:04:36.336Z" },
 ]
-
-[[package]]
-name = "ssis2sql"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "loguru" },
-    { name = "pre-commit" },
-    { name = "textual" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-validation = [
-    { name = "pandas" },
-    { name = "pyarrow" },
-    { name = "pyodbc" },
-    { name = "python-dotenv" },
-    { name = "pyyaml" },
-    { name = "sqlglot" },
-]
-web = [
-    { name = "textual-serve" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "loguru", specifier = ">=0.7" },
-    { name = "pre-commit", specifier = ">=4.6.0" },
-    { name = "textual", specifier = ">=8.2" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "mypy", specifier = ">=1.10" },
-    { name = "pytest", specifier = ">=7.0" },
-    { name = "pytest-asyncio", specifier = ">=1.3" },
-    { name = "pytest-cov", specifier = ">=4.0" },
-    { name = "ruff", specifier = ">=0.5" },
-]
-validation = [
-    { name = "pandas", specifier = ">=3.0" },
-    { name = "pyarrow", specifier = ">=24.0" },
-    { name = "pyodbc", specifier = ">=5.3" },
-    { name = "python-dotenv", specifier = ">=1.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "sqlglot", specifier = ">=25.0" },
-]
-web = [{ name = "textual-serve", specifier = ">=1.1" }]
 
 [[package]]
 name = "textual"

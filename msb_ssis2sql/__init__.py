@@ -1,8 +1,8 @@
-"""ssis2sql - convert SSIS data-flow transformations into consolidated T-SQL.
+"""msb_ssis2sql - convert SSIS data-flow transformations into consolidated T-SQL.
 
 The framework has four stages:
 
-    parser      .dtsx XML            -> ssis2sql.model intermediate representation
+    parser      .dtsx XML            -> msb_ssis2sql.model intermediate representation
     graph       components + paths   -> a directed acyclic data-flow graph
     transforms  one transpiler/kind  -> a relational fragment (a CTE) per component
     generator   topological assembly -> a single consolidated T-SQL statement per sink

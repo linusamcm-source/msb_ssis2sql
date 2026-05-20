@@ -34,7 +34,7 @@ _UNARY_OPS = {"-", "+", "!", "~"}
 
 
 class Parser:
-    """Turns a token list into an :mod:`ssis2sql.expressions.ast` tree."""
+    """Turns a token list into an :mod:`msb_ssis2sql.expressions.ast` tree."""
 
     def __init__(self, tokens: list[Token]):
         self.toks = tokens

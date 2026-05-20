@@ -32,7 +32,7 @@ import sqlglot.errors
 from sqlglot import exp
 
 if TYPE_CHECKING:
-    from ssis2sql.component_types import ComponentKind
+    from msb_ssis2sql.component_types import ComponentKind
 
 # ---------------------------------------------------------------------------
 # Regex — CREATE TABLE parser (same pattern as provisioning.py / sql_runner.py)
@@ -118,7 +118,7 @@ def check_sql_parse(sql: str) -> ParseResult:
     ----------
     sql:
         T-SQL text to validate — typically the output of
-        ``ssis2sql.convert_file``.
+        ``msb_ssis2sql.convert_file``.
 
     Returns
     -------
@@ -266,7 +266,7 @@ def check_column_lineage(
     Parameters
     ----------
     sql:
-        Converted T-SQL (output of ``ssis2sql.convert_file``).
+        Converted T-SQL (output of ``msb_ssis2sql.convert_file``).
     schema:
         Mapping ``{table_name: {col_name: sql_type_token}}`` from
         :func:`extract_schema`.
@@ -375,25 +375,25 @@ def check_column_lineage(
 
 
 def must_cover_kinds() -> list[ComponentKind]:
-    """Return the list of :class:`~ssis2sql.component_types.ComponentKind` values
+    """Return the list of :class:`~msb_ssis2sql.component_types.ComponentKind` values
     that the corpus must cover.
 
-    Reads ``ssis2sql.transforms.registry._REGISTRY`` live (not a repomix
+    Reads ``msb_ssis2sql.transforms.registry._REGISTRY`` live (not a repomix
     snapshot) and returns every kind that:
 
-    - has a dedicated (non-:class:`~ssis2sql.transforms.flow.PassThroughFallbackTranspiler`)
+    - has a dedicated (non-:class:`~msb_ssis2sql.transforms.flow.PassThroughFallbackTranspiler`)
       transpiler, **and**
     - is not a ``FLATFILE_*`` kind (the ODBC corpus exercises ODBC sources only).
 
     Returns
     -------
     list[ComponentKind]
-        Sorted by :attr:`~ssis2sql.component_types.ComponentKind.value` for
+        Sorted by :attr:`~msb_ssis2sql.component_types.ComponentKind.value` for
         deterministic test output.  Contains exactly 15 kinds as of Story 7
         authorship.
     """
-    from ssis2sql.transforms.flow import PassThroughFallbackTranspiler
-    from ssis2sql.transforms.registry import _REGISTRY
+    from msb_ssis2sql.transforms.flow import PassThroughFallbackTranspiler
+    from msb_ssis2sql.transforms.registry import _REGISTRY
 
     kinds = []
     for kind, cls in _REGISTRY.items():

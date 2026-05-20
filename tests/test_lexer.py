@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from ssis2sql.errors import ExpressionError
-from ssis2sql.expressions.lexer import Token, tokenize
+from msb_ssis2sql.errors import ExpressionError
+from msb_ssis2sql.expressions.lexer import Token, tokenize
 
 
 def kinds(text: str) -> list[str]:

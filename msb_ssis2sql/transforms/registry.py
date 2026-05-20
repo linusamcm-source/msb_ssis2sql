@@ -1,7 +1,7 @@
 """The transpiler base class and the component registry.
 
 A *transpiler* turns one pipeline component into SQL. Each one is registered
-against one or more :class:`~ssis2sql.model.ComponentKind` values via the
+against one or more :class:`~msb_ssis2sql.model.ComponentKind` values via the
 :func:`register` decorator, so adding support for a new component is a
 self-contained file; the generator finds it through :func:`get_transpiler`.
 """

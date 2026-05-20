@@ -1,4 +1,4 @@
-"""Exception hierarchy for ssis2sql."""
+"""Exception hierarchy for msb_ssis2sql."""
 from __future__ import annotations
 
 

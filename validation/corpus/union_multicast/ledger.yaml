@@ -8,7 +8,7 @@ destinations:
       amount:     { policy: float, epsilon: 0.0001 }
       # Audit columns: pkg_name is a deterministic literal in the converted SQL
       # but exec_time (SYSDATETIME()) is non-deterministic. Both are excluded so
-      # comparison focuses on the business columns that ssis2sql actually transforms.
+      # comparison focuses on the business columns that msb_ssis2sql actually transforms.
       pkg_name:   { policy: exclude }
       exec_time:  { policy: exclude }
     known_divergences:

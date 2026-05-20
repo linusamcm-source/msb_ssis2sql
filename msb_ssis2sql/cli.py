@@ -1,4 +1,4 @@
-"""Command-line interface: ``ssis2sql convert``, ``ssis2sql inspect``, and ``ssis2sql convert-tree``."""
+"""Command-line interface: ``msb_ssis2sql convert``, ``msb_ssis2sql inspect``, and ``msb_ssis2sql convert-tree``."""
 from __future__ import annotations
 
 import argparse
@@ -14,7 +14,7 @@ from .parser import parse_file
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="ssis2sql",
+        prog="msb_ssis2sql",
         description="Convert SSIS (.dtsx) data-flow transformations into consolidated T-SQL.",
     )
     sub = parser.add_subparsers(dest="command", required=True)
@@ -67,12 +67,12 @@ def _cmd_convert(args) -> int:
     if args.output:
         output_path = pathlib.Path(args.output)
         output_path.write_text(result.sql, encoding="utf-8")
-        print(f"ssis2sql: wrote {output_path}", file=sys.stderr)
+        print(f"msb_ssis2sql: wrote {output_path}", file=sys.stderr)
     else:
         sys.stdout.write(result.sql)
 
     if result.warnings and not args.quiet:
-        print(f"\nssis2sql: {len(result.warnings)} warning(s):", file=sys.stderr)
+        print(f"\nmsb_ssis2sql: {len(result.warnings)} warning(s):", file=sys.stderr)
         for warning in result.warnings:
             print(f"  ! {warning}", file=sys.stderr)
     return 0
@@ -138,12 +138,12 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "convert-tree":
             return _cmd_convert_tree(args)
     except Ssis2SqlError as exc:
-        print(f"ssis2sql: error: {exc}", file=sys.stderr)
+        print(f"msb_ssis2sql: error: {exc}", file=sys.stderr)
         return 2
     except OSError as exc:
         # parse_file() already converts input-file failures to ParseError; this
         # catches a failed --output write, the one raw OSError that still escapes.
-        print(f"ssis2sql: error: {exc}", file=sys.stderr)
+        print(f"msb_ssis2sql: error: {exc}", file=sys.stderr)
         return 2
     return 0
 

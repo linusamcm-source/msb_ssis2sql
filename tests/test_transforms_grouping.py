@@ -6,9 +6,9 @@ destination it feeds directly).
 """
 from __future__ import annotations
 
-from ssis2sql.generator import convert_package
-from ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Path, Port
-from ssis2sql.transforms.grouping import AggregateTranspiler, SortTranspiler
+from msb_ssis2sql.generator import convert_package
+from msb_ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Path, Port
+from msb_ssis2sql.transforms.grouping import AggregateTranspiler, SortTranspiler
 
 
 def test_grouping_transpilers_are_registered():

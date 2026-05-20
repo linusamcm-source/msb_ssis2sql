@@ -1,7 +1,7 @@
 """Tests for the dependency-free shared helpers."""
 from __future__ import annotations
 
-from ssis2sql.util import to_int
+from msb_ssis2sql.util import to_int
 
 
 # --------------------------------------------------------------------------- #

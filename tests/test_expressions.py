@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from ssis2sql.errors import ExpressionError
-from ssis2sql.expressions import translate_condition, translate_expression
+from msb_ssis2sql.errors import ExpressionError
+from msb_ssis2sql.expressions import translate_condition, translate_expression
 
 
 def expr(text: str) -> str:

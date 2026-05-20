@@ -43,7 +43,7 @@ from pathlib import Path
 import pandas as pd
 import pyodbc  # noqa: F401 — runtime type annotation for conn parameter
 
-from ssis2sql.observability import logger
+from msb_ssis2sql.observability import logger
 from validation.provisioning import provision, seed, seed_checksum
 
 # read_destination imported as a name so tests can patch validation.capture.capture.read_destination

@@ -3,9 +3,9 @@ from __future__ import annotations
 
 import pytest
 
-from ssis2sql.errors import GraphError
-from ssis2sql.graph import DataFlowGraph
-from ssis2sql.model import Component, ComponentKind, DataFlow, Path, Port
+from msb_ssis2sql.errors import GraphError
+from msb_ssis2sql.graph import DataFlowGraph
+from msb_ssis2sql.model import Component, ComponentKind, DataFlow, Path, Port
 
 
 def _component(ref: str, name: str) -> Component:

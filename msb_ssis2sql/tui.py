@@ -1,4 +1,4 @@
-"""Textual control-panel TUI for ssis2sql — launches justfile recipes."""
+"""Textual control-panel TUI for msb_ssis2sql — launches justfile recipes."""
 from __future__ import annotations
 
 import json
@@ -396,7 +396,7 @@ class Ssis2SqlTUI(App):
                 self._tab_recipes["configuration"].append(r)
         # Synthetic panes, first in their tab.
         self._tab_recipes["validation"].insert(
-            0, Recipe(name="validation", doc="Run the ssis2sql validation framework."))
+            0, Recipe(name="validation", doc="Run the msb_ssis2sql validation framework."))
         self._tab_recipes["configuration"].insert(
             0, Recipe(name="config", doc="Edit the .env SQL Server settings."))
         # recipe name -> tab id, for nav routing.

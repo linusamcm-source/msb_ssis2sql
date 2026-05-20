@@ -1,4 +1,4 @@
-"""Tests for ``ssis2sql.transforms.context`` - ``BuildContext`` and ``Sink``.
+"""Tests for ``msb_ssis2sql.transforms.context`` - ``BuildContext`` and ``Sink``.
 
 These exercise the mutable build state threaded through one data flow's
 transpilers: unique CTE naming, warning deduplication, CTE registration with
@@ -7,12 +7,12 @@ resolver. Each test wires a minimal :class:`BuildContext` from the IR.
 """
 from __future__ import annotations
 
-from ssis2sql.dialect import TSqlDialect
-from ssis2sql.generator import ConvertOptions
-from ssis2sql.graph import DataFlowGraph
-from ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Port
-from ssis2sql.relation import RelColumn
-from ssis2sql.transforms.context import BuildContext, Sink
+from msb_ssis2sql.dialect import TSqlDialect
+from msb_ssis2sql.generator import ConvertOptions
+from msb_ssis2sql.graph import DataFlowGraph
+from msb_ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Port
+from msb_ssis2sql.relation import RelColumn
+from msb_ssis2sql.transforms.context import BuildContext, Sink
 
 
 # --------------------------------------------------------------------------- #

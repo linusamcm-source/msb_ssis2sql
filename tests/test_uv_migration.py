@@ -20,7 +20,7 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 JUSTFILE = REPO_ROOT / "justfile"
 PYTHON_VERSION_FILE = REPO_ROOT / ".python-version"
 UV_LOCK = REPO_ROOT / "uv.lock"
-WEB_PY = REPO_ROOT / "ssis2sql" / "web.py"
+WEB_PY = REPO_ROOT / "msb_ssis2sql" / "web.py"
 RUNBOOK = REPO_ROOT / "validation" / "capture" / "RUNBOOK.md"
 CAPTURE_PS1 = REPO_ROOT / "validation" / "capture" / "capture.ps1"
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "validation.yml"
@@ -198,15 +198,15 @@ def test_justfile_install_web_recipe_removed() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 10. ssis2sql/web.py error message migrates to `just install`
+# 10. msb_ssis2sql/web.py error message migrates to `just install`
 # ---------------------------------------------------------------------------
 def test_web_py_error_message_uses_just_install() -> None:
     text = WEB_PY.read_text()
     assert "just install" in text, (
-        "ssis2sql/web.py must mention `just install` in the import-error hint"
+        "msb_ssis2sql/web.py must mention `just install` in the import-error hint"
     )
     assert "install-web" not in text, (
-        "ssis2sql/web.py must not reference the removed `install-web` recipe"
+        "msb_ssis2sql/web.py must not reference the removed `install-web` recipe"
     )
 
 

@@ -23,7 +23,7 @@ from uuid import uuid4
 
 import pytest
 
-from ssis2sql.observability import logger
+from msb_ssis2sql.observability import logger
 from validation.config import load_config
 from validation.sqlserver import (
     SqlServerUnavailable,

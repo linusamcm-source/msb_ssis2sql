@@ -2,8 +2,8 @@
 
 These functions carry no per-data-flow state - identifier sanitising, trailing
 ORDER BY stripping, table-name resolution, column re-shaping. The mutable build
-context lives in :mod:`ssis2sql.transforms.context`; the transpiler base class
-and registry in :mod:`ssis2sql.transforms.registry`.
+context lives in :mod:`msb_ssis2sql.transforms.context`; the transpiler base class
+and registry in :mod:`msb_ssis2sql.transforms.registry`.
 """
 from __future__ import annotations
 

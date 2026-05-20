@@ -14,7 +14,7 @@ Three enforcement checks:
 
 AC1 — Parse-validity
     For every corpus package, the converted T-SQL produced by
-    :func:`ssis2sql.convert_file` must parse without error under
+    :func:`msb_ssis2sql.convert_file` must parse without error under
     sqlglot (dialect="tsql").
 
 AC2 — Column lineage
@@ -40,8 +40,8 @@ from pathlib import Path
 
 import pytest
 
-from ssis2sql import ConvertOptions, convert_file
-from ssis2sql.component_types import ComponentKind, resolve
+from msb_ssis2sql import ConvertOptions, convert_file
+from msb_ssis2sql.component_types import ComponentKind, resolve
 from validation.static_checks import (
     check_column_lineage,
     check_completeness,

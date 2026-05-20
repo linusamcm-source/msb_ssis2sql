@@ -25,7 +25,7 @@ class Edge:
 
 
 class DataFlowGraph:
-    """Indexed, traversable view over a :class:`~ssis2sql.model.DataFlow`."""
+    """Indexed, traversable view over a :class:`~msb_ssis2sql.model.DataFlow`."""
 
     def __init__(self, data_flow: DataFlow):
         self.data_flow = data_flow

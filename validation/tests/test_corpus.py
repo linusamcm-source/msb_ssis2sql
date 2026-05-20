@@ -17,12 +17,12 @@ Per discovered package (parametrized over ``validation/corpus/*/``):
     ``ledger.yaml``, and a ``golden/`` directory must all be present.
 
 ``test_package_parses``
-    ``ssis2sql.convert_file`` parses ``package.dtsx`` without an unhandled
+    ``msb_ssis2sql.convert_file`` parses ``package.dtsx`` without an unhandled
     exception.  A ``ConversionResult`` is returned (the SQL text may be empty
     for a skeletal package, but no exception is raised).
 
 ``test_package_transpiles``
-    ``ssis2sql.convert_file`` with ``wrap_in_procedure=False`` and
+    ``msb_ssis2sql.convert_file`` with ``wrap_in_procedure=False`` and
     ``include_header=False`` returns a non-empty SQL string.
 
 ``test_ledger_consistent_with_schema``
@@ -39,7 +39,7 @@ import dependency on provisioning internals.
 API contract the engineer must satisfy
 ---------------------------------------
 - ``validation/corpus/<name>/package.dtsx`` — a valid ``.dtsx`` accepted by
-  ``ssis2sql.convert_file``.
+  ``msb_ssis2sql.convert_file``.
 - ``validation/corpus/<name>/schema.sql`` — T-SQL DDL with ``GO`` separators;
   ``CREATE TABLE dbo.<name>`` for each ``src_*``, ``ref_*``, and ``dst_*``
   table.
@@ -56,8 +56,8 @@ from pathlib import Path
 
 import pytest
 
-from ssis2sql import convert_file
-from ssis2sql.generator import ConvertOptions
+from msb_ssis2sql import convert_file
+from msb_ssis2sql.generator import ConvertOptions
 from validation.ledger import parse_ledger
 
 # ---------------------------------------------------------------------------
@@ -230,7 +230,7 @@ def test_package_has_required_files(pkg_dir: Path) -> None:
 
 @pytest.mark.parametrize("pkg_dir", _PACKAGES, ids=_PACKAGE_IDS)
 def test_package_parses(pkg_dir: Path) -> None:
-    """``ssis2sql.convert_file`` must parse ``package.dtsx`` without raising.
+    """``msb_ssis2sql.convert_file`` must parse ``package.dtsx`` without raising.
 
     A parse failure (unhandled exception) means the package XML is malformed
     or uses a component structure the parser does not accept.  The test does
@@ -246,7 +246,7 @@ def test_package_parses(pkg_dir: Path) -> None:
 
 @pytest.mark.parametrize("pkg_dir", _PACKAGES, ids=_PACKAGE_IDS)
 def test_package_transpiles(pkg_dir: Path) -> None:
-    """``ssis2sql.convert_file`` must return non-empty SQL for ``package.dtsx``.
+    """``msb_ssis2sql.convert_file`` must return non-empty SQL for ``package.dtsx``.
 
     An empty SQL string indicates the transpiler produced no output — either
     the package has no data flow or all components were silently skipped.

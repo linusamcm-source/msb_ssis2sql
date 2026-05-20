@@ -6,9 +6,9 @@ Builds small in-memory IR packages and converts them through
 """
 from __future__ import annotations
 
-from ssis2sql.generator import convert_package
-from ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Path, Port
-from ssis2sql.transforms.source import SourceTranspiler
+from msb_ssis2sql.generator import convert_package
+from msb_ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Path, Port
+from msb_ssis2sql.transforms.source import SourceTranspiler
 
 
 def test_source_transpiler_is_registered_for_source_kinds():

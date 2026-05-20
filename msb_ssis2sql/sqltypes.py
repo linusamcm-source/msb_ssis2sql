@@ -72,7 +72,7 @@ def tsql_type(code: str, args: list[int] | None = None) -> str:
 
 
 def tsql_type_from_column(col: Column) -> str:
-    """Translate a pipeline :class:`~ssis2sql.model.Column` to a T-SQL type."""
+    """Translate a pipeline :class:`~msb_ssis2sql.model.Column` to a T-SQL type."""
     c = _normalise_type_code(col.data_type)
     if c == "str":
         return f"VARCHAR({col.length or 255})"

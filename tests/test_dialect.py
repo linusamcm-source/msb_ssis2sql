@@ -1,7 +1,7 @@
 """Tests for the T-SQL dialect - identifier quoting."""
 from __future__ import annotations
 
-from ssis2sql.dialect import TSqlDialect
+from msb_ssis2sql.dialect import TSqlDialect
 
 
 # --------------------------------------------------------------------------- #

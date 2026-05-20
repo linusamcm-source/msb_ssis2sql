@@ -9,7 +9,7 @@ would turn bugs into wrong results, so swallowing is opt-in (``reraise=False``).
 across a whole module, so "instrument every function" is one call, not one
 decorator per ``def``.
 
-Following loguru's convention for libraries, ssis2sql's logger is *disabled* on
+Following loguru's convention for libraries, msb_ssis2sql's logger is *disabled* on
 import - importing the package emits nothing. An application turns logging on
 with :func:`configure_logging` (the CLI does this from its ``-v`` flag).
 """
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from loguru import Logger
 
 # Stay silent until the host application opts in (loguru's library convention).
-logger.disable("ssis2sql")
+logger.disable("msb_ssis2sql")
 
 __all__ = ["logger", "configure_logging", "logged", "log_methods", "instrument_module"]
 
@@ -47,7 +47,7 @@ def configure_logging(
     diagnose: bool = False,
     backtrace: bool = True,
 ) -> Logger:
-    """Enable ssis2sql logging and route it to ``sink`` (default: ``stderr``).
+    """Enable msb_ssis2sql logging and route it to ``sink`` (default: ``stderr``).
 
     ``diagnose`` controls loguru's variable-value annotation inside tracebacks;
     it is off by default because those values are verbose and may be sensitive.
@@ -60,7 +60,7 @@ def configure_logging(
         diagnose=diagnose,
         format=_FORMAT,
     )
-    logger.enable("ssis2sql")
+    logger.enable("msb_ssis2sql")
     return logger
 
 
@@ -143,7 +143,7 @@ def instrument_module(
     function is not double-wrapped. Returns the count instrumented. Drop this at
     the foot of a module to trace all of its functions::
 
-        from ssis2sql.observability import instrument_module
+        from msb_ssis2sql.observability import instrument_module
         instrument_module(sys.modules[__name__])
     """
     count = 0

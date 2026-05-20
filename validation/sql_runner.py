@@ -1,6 +1,6 @@
 """Converted-SQL runner — Story 3.
 
-Transpiles a corpus package's ``package.dtsx`` via ``ssis2sql``, executes the
+Transpiles a corpus package's ``package.dtsx`` via ``msb_ssis2sql``, executes the
 resulting T-SQL batches against a live SQL Server connection, then reads back
 every ``dst_*`` table into a :class:`pandas.DataFrame`.
 
@@ -29,8 +29,8 @@ from pathlib import Path
 import pandas as pd
 import pyodbc
 
-from ssis2sql import ConvertOptions, convert_file
-from ssis2sql.observability import logger
+from msb_ssis2sql import ConvertOptions, convert_file
+from msb_ssis2sql.observability import logger
 from validation.provisioning import _quote, _safe_identifier
 
 # ---------------------------------------------------------------------------
@@ -61,7 +61,7 @@ class RunResult:
         :class:`pandas.DataFrame` read back after SQL execution.  Empty dict
         when :attr:`error` is set.
     warnings:
-        List of warning strings emitted by ``ssis2sql.convert_file`` during
+        List of warning strings emitted by ``msb_ssis2sql.convert_file`` during
         transpilation.  May be empty even on success.
     error:
         Non-empty string when the SQL execution step failed.  Empty string
@@ -169,7 +169,7 @@ def read_destination(
         the declared type via :func:`pandas.DataFrame.astype` on a
         best-effort basis.  A coercion failure for a column (caused by
         genuinely non-coercible data in that column) logs a warning via
-        ``ssis2sql.observability.logger`` and leaves the column dtype
+        ``msb_ssis2sql.observability.logger`` and leaves the column dtype
         unchanged.
         When ``None`` or empty, the DataFrame is returned with the types
         pyodbc inferred.
@@ -236,7 +236,7 @@ def run(
     Steps:
 
     1. Transpile ``package_dir/package.dtsx`` via
-       :func:`ssis2sql.convert_file`.
+       :func:`msb_ssis2sql.convert_file`.
     2. Split the resulting SQL on ``GO`` batch separators.
     3. Execute each batch against *conn*.
     4. Read back every ``dst_*`` table declared in ``schema.sql`` into a

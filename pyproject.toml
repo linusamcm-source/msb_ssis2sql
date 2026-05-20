@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ssis2sql"
+name = "msb_ssis2sql"
 version = "0.1.0"
 description = "Convert SSIS data-flow transformations into consolidated, behaviour-equivalent T-SQL."
 readme = "README.md"
@@ -18,8 +18,8 @@ dependencies = [
 ]
 
 [project.scripts]
-ssis2sql = "ssis2sql.cli:main"
-ssis2sql-web = "ssis2sql.web:main"
+msb_ssis2sql = "msb_ssis2sql.cli:main"
+msb_ssis2sql-web = "msb_ssis2sql.web:main"
 
 [dependency-groups]
 dev = [
@@ -43,7 +43,7 @@ validation = [
 default-groups = ["dev", "web", "validation"]
 
 [tool.setuptools.packages.find]
-include = ["ssis2sql*", "validation*"]
+include = ["msb_ssis2sql*", "validation*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

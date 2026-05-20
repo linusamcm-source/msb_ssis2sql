@@ -1,4 +1,4 @@
-"""Tests for ssis2sql.tui — Story 2 and Story 3.
+"""Tests for msb_ssis2sql.tui — Story 2 and Story 3.
 
 Story 2 — pure-helper tests cover find_repo_root and discover_recipes; Textual
 pilot tests cover App composition, sidebar navigation, the recipe runner, and the
@@ -24,10 +24,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ssis2sql/tui.py exists (Story 2, commit 3bfe4a9). Story 3 tests fail individually
+# msb_ssis2sql/tui.py exists (Story 2, commit 3bfe4a9). Story 3 tests fail individually
 # because picker pane widgets (ct-input-tree, file-convert, etc.) and DtsxTree are
 # not yet added to tui.py — that is the Story 3 GREEN phase.
-from ssis2sql.tui import (
+from msb_ssis2sql.tui import (
     Recipe,
     Ssis2SqlTUI,
     _MSSQL_KEYS,
@@ -271,7 +271,7 @@ async def test_app_compose_one_button_per_recipe(monkeypatch, tmp_path):
     """AC 1: the three tabs exist and each tab's sub-sidebar holds exactly its
     expected nav-buttons — one per recipe partitioned into that tab, plus the
     synthetic ``validation``/``config`` pane buttons the app always inserts."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Button, TabPane
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -295,7 +295,7 @@ async def test_app_compose_one_button_per_recipe(monkeypatch, tmp_path):
 
 async def test_app_compose_no_button_for_excluded_recipes(monkeypatch, tmp_path):
     """AC 2: no nav-button exists for opus or tui in any of the three tabs."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Button
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -313,7 +313,7 @@ async def test_app_compose_no_button_for_excluded_recipes(monkeypatch, tmp_path)
 async def test_clicking_nav_button_switches_content_pane(monkeypatch, tmp_path):
     """AC 3: after switching to a tab, clicking one of its sub-sidebar buttons
     sets that tab's own ContentSwitcher (#content-<tab>) to pane-<name>."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import ContentSwitcher, TabbedContent
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -345,7 +345,7 @@ async def test_run_button_writes_to_log_and_exits(monkeypatch, tmp_path):
 
     ``demo`` lives in the Migration tab — the initial tab — so its Run button is
     on screen; no tab switch is needed before clicking it."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -381,7 +381,7 @@ async def test_run_output_is_incremental_and_ui_stays_responsive(monkeypatch, tm
     ``demo`` (Migration tab) and ``test`` (Configuration tab) deliberately sit in
     different tabs: starting demo's run, switching to the Configuration tab, then
     clicking nav-test proves the in-flight thread worker did not block the loop."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Button, ContentSwitcher, Log, TabbedContent
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -424,7 +424,7 @@ async def test_run_output_is_incremental_and_ui_stays_responsive(monkeypatch, tm
 
 async def test_q_key_quits_app_when_focus_not_on_input(monkeypatch, tmp_path):
     """AC 6: pressing q while a sidebar Button has focus exits the app."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Button
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -495,7 +495,7 @@ async def test_convert_tree_pane_has_two_directory_trees_and_two_inputs(
 ):
     """AC 1: the migrate-directory pane contains ct-input-tree, ct-output-tree,
     ct-input-path, and ct-output-path."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import DirectoryTree, Input
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -521,7 +521,7 @@ async def test_convert_tree_pane_has_two_directory_trees_and_two_inputs(
 
 async def test_selecting_input_directory_fills_ct_input_path(monkeypatch, tmp_path):
     """AC 2: DirectorySelected on ct-input-tree writes str(path) to ct-input-path."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Input
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -550,7 +550,7 @@ async def test_selecting_input_directory_fills_ct_input_path(monkeypatch, tmp_pa
 
 async def test_selecting_output_directory_fills_ct_output_path(monkeypatch, tmp_path):
     """AC 2: DirectorySelected on ct-output-tree writes str(path) to ct-output-path."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Input
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -579,7 +579,7 @@ async def test_two_trees_are_distinguished_by_control_id_not_order(
 ):
     """AC 2: input-tree and output-tree write to different Inputs — confirmed by
     sending events with swapped control ids and asserting each Input got its own value."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Input
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -613,7 +613,7 @@ async def test_two_trees_are_distinguished_by_control_id_not_order(
 
 async def test_submitting_valid_path_reroots_ct_input_tree(monkeypatch, tmp_path):
     """AC 3: on_input_submitted with a valid dir path reassigns DirectoryTree.path."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import DirectoryTree, Input
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -651,7 +651,7 @@ async def test_convert_tree_with_empty_input_path_writes_error_to_log(
 ):
     """AC 6 (plan): Convert tree with no input path writes an error to the Log
     and does not start the recipe worker."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -682,7 +682,7 @@ async def test_convert_tree_with_nonexistent_input_path_writes_error_to_log(
     monkeypatch, tmp_path
 ):
     """AC 6 (plan): Convert tree with non-existent input path writes error, no launch."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Input, Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -719,7 +719,7 @@ async def test_convert_tree_with_nonexistent_input_path_writes_error_to_log(
 async def test_convert_tree_with_valid_paths_runs_recipe(monkeypatch, tmp_path):
     """AC 4: Convert tree with valid input and output dirs calls Popen with
     'migrate-directory', the input path, and the output path; Log receives output."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Input, Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -789,7 +789,7 @@ async def test_convert_tree_with_valid_paths_runs_recipe(monkeypatch, tmp_path):
 async def test_selecting_dtsx_in_convert_pane_fills_file_input(monkeypatch, tmp_path):
     """AC 5(b): on_directory_tree_file_selected with a .dtsx on tree-convert writes
     the path str to the #file-convert Input."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Input
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -819,7 +819,7 @@ async def test_selecting_dtsx_in_convert_pane_fills_file_input(monkeypatch, tmp_
 
 def test_dtsx_tree_filter_paths_keeps_dirs_and_dtsx(tmp_path):
     """AC 5: DtsxTree.filter_paths returns only directories and .dtsx files."""
-    from ssis2sql.tui import DtsxTree  # not at module level — DtsxTree is Story 3 GREEN
+    from msb_ssis2sql.tui import DtsxTree  # not at module level — DtsxTree is Story 3 GREEN
 
     # Build a set of paths with various extensions.
     dtsx_file = tmp_path / "pkg.dtsx"
@@ -842,7 +842,7 @@ def test_dtsx_tree_filter_paths_keeps_dirs_and_dtsx(tmp_path):
 
 def test_dtsx_tree_filter_paths_case_insensitive_dtsx(tmp_path):
     """DtsxTree treats .DTSX (upper-case) as a .dtsx file — suffix is lowercased."""
-    from ssis2sql.tui import DtsxTree  # not at module level — DtsxTree is Story 3 GREEN
+    from msb_ssis2sql.tui import DtsxTree  # not at module level — DtsxTree is Story 3 GREEN
 
     upper = tmp_path / "PKG.DTSX"
     upper.write_text("", encoding="utf-8")
@@ -860,7 +860,7 @@ def test_dtsx_tree_filter_paths_case_insensitive_dtsx(tmp_path):
 
 def test_filtered_dir_tree_hides_dotfile_and_underscored_dirs(tmp_path):
     """FilteredDirTree drops .git / .venv / __pycache__ and keeps regular dirs."""
-    from ssis2sql.tui import FilteredDirTree
+    from msb_ssis2sql.tui import FilteredDirTree
 
     visible = tmp_path / "src"
     hidden_dot = tmp_path / ".git"
@@ -878,7 +878,7 @@ def test_filtered_dir_tree_hides_dotfile_and_underscored_dirs(tmp_path):
 
 def test_filtered_dir_tree_keeps_dotfile_named_files(tmp_path):
     """File names that start with '.' are kept — only directories are filtered."""
-    from ssis2sql.tui import FilteredDirTree
+    from msb_ssis2sql.tui import FilteredDirTree
 
     dotfile = tmp_path / ".env"
     dotfile.write_text("", encoding="utf-8")
@@ -891,7 +891,7 @@ def test_filtered_dir_tree_keeps_dotfile_named_files(tmp_path):
 
 def test_dtsx_tree_hides_dotfile_and_underscored_dirs(tmp_path):
     """DtsxTree inherits the hidden-dir filter from FilteredDirTree."""
-    from ssis2sql.tui import DtsxTree
+    from msb_ssis2sql.tui import DtsxTree
 
     visible = tmp_path / "packages"
     hidden_dot = tmp_path / ".venv"
@@ -919,7 +919,7 @@ async def test_file_click_on_ct_input_tree_does_not_change_input(
 ):
     """AC 5 (plan §3.1): FileSelected on ct-input-tree must not change ct-input-path.
     The handler only responds to DirectorySelected — a file-click is a no-op."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Input
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -962,7 +962,7 @@ async def test_convert_tree_with_empty_output_path_writes_error_to_log(
     monkeypatch, tmp_path
 ):
     """AC 6 (SPEC-3-M2): valid input path but empty output path → error line, no Popen."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1002,7 +1002,7 @@ async def test_convert_pane_run_button_calls_popen_with_file_path(
     """SPEC-3-M1 + migrate-file output-dir: pressing Run with both a .dtsx input
     and an output directory selected calls Popen with 'migrate-file', the input
     file, and a constructed OUTFILE = <output_dir>/<stem>.sql."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Input, Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1072,7 +1072,7 @@ async def test_migrate_file_with_empty_output_writes_error_and_skips_popen(
 ):
     """A valid .dtsx input but empty output directory must log an error and
     must not launch Popen."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1114,7 +1114,7 @@ async def test_add_directory_in_migrate_directory_pane_creates_folder(
 ):
     """Clicking ct-add-dir with a populated output path and new-folder-name
     creates the named folder inside the output dir and clears the name input."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Button, Input, Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1143,7 +1143,7 @@ async def test_add_directory_in_migrate_directory_pane_creates_folder(
 
 async def test_add_directory_rejects_empty_name(monkeypatch, tmp_path):
     """ct-add-dir with an empty new-folder-name writes an error and creates nothing."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Button, Input, Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1168,7 +1168,7 @@ async def test_add_directory_rejects_empty_name(monkeypatch, tmp_path):
 
 async def test_add_directory_rejects_path_separator(monkeypatch, tmp_path):
     """Folder names containing '/' or '\\' must be rejected (escape prevention)."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Button, Input, Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1196,7 +1196,7 @@ async def test_add_directory_in_migrate_file_pane_creates_folder(
     monkeypatch, tmp_path
 ):
     """mf-add-dir mirrors ct-add-dir for the migrate-file pane."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Button, Input
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1226,7 +1226,7 @@ async def test_convert_pane_run_with_nonexistent_file_writes_error(
     monkeypatch, tmp_path
 ):
     """CR-3-M: _launch_dtsx_picker must validate the file exists before launching."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1324,7 +1324,7 @@ def test_parse_pytest_summary(lines, expected):
 async def test_validation_pane_is_present_and_navigable(monkeypatch, tmp_path):
     """Plan §3.1(1): switching to the Validation tab and clicking nav-validation
     switches that tab's ContentSwitcher (#content-validation) to pane-validation."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import ContentSwitcher, TabbedContent
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1348,7 +1348,7 @@ async def test_layer_recipes_have_no_plain_sidebar_button(monkeypatch, tmp_path)
     validate) move into the pane and get no plain nav-button in any tab;
     validate-cov stays an ordinary RecipePane button, and nav-validation (the
     synthetic Validation pane button) is always present."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Button
 
     # A local recipe list (not _three_recipes) including all four validate-*
@@ -1381,7 +1381,7 @@ async def test_static_layer_button_streams_into_log_and_summary(monkeypatch, tmp
     """Plan §3.1(3): after switching to the Validation tab, clicking the Static
     layer button streams `just validate-static` output into #log-validation,
     ends with [exit 0], and #validation-summary renders the parsed count."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Log, Static, TabbedContent
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1420,7 +1420,7 @@ async def test_differential_button_warns_when_dotenv_absent(monkeypatch, tmp_pat
     """Plan §3.1(4): with no .env in the repo root, switching to the Validation
     tab and clicking the Differential layer button writes a `.env not found`
     note into #log-validation."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Log, TabbedContent
 
     # tmp_path has no .env file.
@@ -1452,7 +1452,7 @@ async def test_differential_button_no_warning_when_dotenv_present(monkeypatch, t
     """Plan §3.1(5): with a .env present in the repo root, switching to the
     Validation tab and clicking the Differential layer button does NOT write the
     `.env not found` note."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Log, TabbedContent
 
     # A .env file exists in the repo root — no warning should be emitted.
@@ -1590,7 +1590,7 @@ def test_write_env_partial_dict_does_not_crash(tmp_path):
 async def test_three_tab_panes_exist(monkeypatch, tmp_path):
     """Plan §3.2: the TUI composes exactly three TabPanes — tab-migration,
     tab-validation, tab-configuration."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import TabPane
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1605,7 +1605,7 @@ async def test_three_tab_panes_exist(monkeypatch, tmp_path):
 async def test_switching_active_tab_shows_that_tabs_pane(monkeypatch, tmp_path):
     """Plan §3.2: setting TabbedContent.active to each tab id shows that tab's
     own pane — its #content-<tab> ContentSwitcher becomes the visible one."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import ContentSwitcher, TabbedContent
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1633,7 +1633,7 @@ async def test_switching_active_tab_shows_that_tabs_pane(monkeypatch, tmp_path):
 async def test_config_pane_inputs_prefill_from_env(monkeypatch, tmp_path):
     """Plan §3.2: the four cfg-MSSQL_* Inputs pre-fill from a tmp_path/.env;
     the MSSQL_SA_PASSWORD Input is masked (.password is True)."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Input
 
     # A .env in the repo root with all four MSSQL_* keys.
@@ -1671,7 +1671,7 @@ async def test_config_pane_save_writes_env_and_updates_status(monkeypatch, tmp_p
 
     A roomy terminal size is used so the Save button (below the four Inputs in
     the scrollable ConfigPane) is on screen and clickable."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Input, Static
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
@@ -1710,7 +1710,7 @@ async def test_config_pane_save_writes_env_and_updates_status(monkeypatch, tmp_p
 async def test_config_pane_with_no_env_has_blank_inputs(monkeypatch, tmp_path):
     """Plan §3.2: a ConfigPane with no .env in the repo root composes without
     crashing and leaves all four cfg-MSSQL_* Inputs blank."""
-    import ssis2sql.tui as tui_mod
+    import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Input
 
     # tmp_path deliberately has NO .env file.

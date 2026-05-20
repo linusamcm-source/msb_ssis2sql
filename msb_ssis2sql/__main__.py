@@ -1,4 +1,4 @@
-"""Entry point for ``python -m ssis2sql``."""
+"""Entry point for ``python -m msb_ssis2sql``."""
 from __future__ import annotations
 
 from .cli import main

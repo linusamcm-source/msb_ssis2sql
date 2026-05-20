@@ -1,7 +1,7 @@
 """Component transpilers.
 
 Importing this package has the side effect of registering every transpiler
-(each module applies the :func:`~ssis2sql.transforms.registry.register`
+(each module applies the :func:`~msb_ssis2sql.transforms.registry.register`
 decorator at import time). The generator only needs :func:`get_transpiler`.
 """
 from __future__ import annotations

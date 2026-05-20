@@ -63,7 +63,7 @@ class Translator:
     unknown datepart is recorded in :attr:`warnings` and emitted verbatim, so
     one odd expression does not abort a whole package. A structurally invalid
     expression - wrong function arity, an unknown node or operator type -
-    raises :class:`~ssis2sql.errors.ExpressionError`.
+    raises :class:`~msb_ssis2sql.errors.ExpressionError`.
     """
 
     def __init__(

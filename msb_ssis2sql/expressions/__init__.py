@@ -30,7 +30,7 @@ def translate_expression(
     """Translate an SSIS expression used in *value* position (Derived Column).
 
     Returns ``(sql_text, warnings)``. Unsupported constructs are reported in
-    ``warnings``; raises :class:`~ssis2sql.errors.ExpressionError` when ``text``
+    ``warnings``; raises :class:`~msb_ssis2sql.errors.ExpressionError` when ``text``
     cannot be tokenised or parsed.
     """
     tr = Translator(column_resolver, variable_resolver)
@@ -47,7 +47,7 @@ def translate_condition(
     """Translate an SSIS expression used in *boolean* position (a WHERE clause).
 
     Returns ``(sql_predicate, warnings)``. Unsupported constructs are reported
-    in ``warnings``; raises :class:`~ssis2sql.errors.ExpressionError` when
+    in ``warnings``; raises :class:`~msb_ssis2sql.errors.ExpressionError` when
     ``text`` cannot be tokenised or parsed.
     """
     tr = Translator(column_resolver, variable_resolver)

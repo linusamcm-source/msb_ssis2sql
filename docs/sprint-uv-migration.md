@@ -1,12 +1,12 @@
-# Plan: migrate ssis2sql to `uv` + single unified install
+# Plan: migrate msb_ssis2sql to `uv` + single unified install
 
 **Goal.** Replace `python3 -m venv` + `pip install -e ".[extra]"` with `uv` across
 the whole repo, and collapse the multiple optional-dependency installs (`dev`,
 `web`, `validation`) so a single `just install` makes every recipe in the
 justfile runnable.
 
-**Non-goals.** No changes to `ssis2sql` runtime behaviour, no public-API change,
-no test rewrites. Console scripts (`ssis2sql`, `ssis2sql-web`) keep their names.
+**Non-goals.** No changes to `msb_ssis2sql` runtime behaviour, no public-API change,
+no test rewrites. Console scripts (`msb_ssis2sql`, `msb_ssis2sql-web`) keep their names.
 
 **Source of truth.** All `uv` claims in this plan are sourced from the upstream
 docs surfaced in Phase 0; each phase cites the doc section it follows.
@@ -23,7 +23,7 @@ docs surfaced in Phase 0; each phase cites the doc section it follows.
 | `uv sync --locked` | Fails if `uv.lock` would change — use in CI for reproducibility. | `docs/guides/integration/github.md` |
 | `uv sync --all-extras` | Includes every `[project.optional-dependencies]` entry. | `docs/concepts/projects/sync.md` |
 | `uv sync --all-groups` / `--group <name>` | Includes PEP 735 `[dependency-groups]`. `dev` group included by default; suppress with `--no-dev`. | `docs/concepts/projects/sync.md` |
-| `uv run <cmd>` | Runs `<cmd>` inside `.venv`, auto-syncing first. Use `uv run pytest`, `uv run python -m ssis2sql ...`, etc. | `docs/concepts/projects/run.md` |
+| `uv run <cmd>` | Runs `<cmd>` inside `.venv`, auto-syncing first. Use `uv run pytest`, `uv run python -m msb_ssis2sql ...`, etc. | `docs/concepts/projects/run.md` |
 | `uv lock` | Explicit lockfile (re)generation. | `docs/concepts/projects/sync.md` |
 | `uv python pin 3.X` | Writes `.python-version`; `uv` will fetch the interpreter if missing. | upstream `README.md` |
 | `[dependency-groups]` (PEP 735) | Project-local groups not exposed in published metadata; preferred over `[project.optional-dependencies]` for dev tooling. | `changelogs/0.4.x.md` (0.4.27) |
@@ -36,7 +36,7 @@ Note on `[tool.uv] package`: when `[build-system]` is defined (we keep setuptool
 - **Do not** invent `uv install` — the command is `uv sync` (or `uv add` to add a dep).
 - **Do not** call `.venv/bin/python` in justfile recipes once migration is done; use `uv run …` so sync happens automatically.
 - **Do not** mix `pip install -e .` with `uv sync` — choose one. Plan picks `uv sync`.
-- **Do not** drop `[build-system]`; without it `uv` won't install `ssis2sql` itself, only deps (per `docs/concepts/projects/config.md`).
+- **Do not** drop `[build-system]`; without it `uv` won't install `msb_ssis2sql` itself, only deps (per `docs/concepts/projects/config.md`).
 - **Do not** put `pytest`/`pytest-cov` in base `dependencies`; they belong in a PEP 735 group so wheels stay slim. (Single-install requirement is honoured by `default-groups`, not by polluting base deps.)
 - **Do not** add `[tool.uv] package = true` — when `[build-system]` is defined the project is installed by default; the flag is for projects that have no build system or want to override an opt-out.
 
@@ -46,7 +46,7 @@ Note on `[tool.uv] package`: when `[build-system]` is defined (we keep setuptool
 - `justfile` lines 6–8, 57–59, 66–68: three separate `install*` recipes, each rebuilds `.venv` via `python3 -m venv` + `pip install -e ".[group]"`.
 - `justfile` lines 11–84: every other recipe hard-codes `.venv/bin/python …`.
 - `.github/workflows/*.yml` lines 38–47: CI calls `just install-validation` + `just validate-static` + `just validate-unit` on Python 3.14.
-- `ssis2sql/web.py:35`: user-visible error string `"Run 'just install-web' (or 'pip install ssis2sql[web]')."` — must update.
+- `msb_ssis2sql/web.py:35`: user-visible error string `"Run 'just install-web' (or 'pip install msb_ssis2sql[web]')."` — must update.
 - `README.md` lines 26–28, 321: install docs reference `just install` and `pip install -e ".[dev]"`.
 - `validation/capture/RUNBOOK.md:33`: Windows install hint references `.venv\Scripts\pip install -e ".[validation]"`.
 
@@ -55,7 +55,7 @@ Note on `[tool.uv] package`: when `[build-system]` is defined (we keep setuptool
 The user requested "one installation for all of the repo's functionality." The
 chosen shape:
 
-- **Base `[project.dependencies]`** keeps only runtime deps actually imported by `ssis2sql` (`loguru`, `textual`).
+- **Base `[project.dependencies]`** keeps only runtime deps actually imported by `msb_ssis2sql` (`loguru`, `textual`).
 - **`[dependency-groups]`** holds three groups: `dev`, `web`, `validation`.
 - **`[tool.uv] default-groups = ["dev", "web", "validation"]`** so plain `uv sync` (and any `uv run` from the justfile) installs *everything* — single command, single environment, no `--all-extras` / `--all-groups` flag needed on the happy path.
 - **Caveat (surface in README, not hidden):** the `validation` group pulls `pyodbc`. With the post-bump floor (`pyodbc>=5.3`, see Phase 1) prebuilt cp314 arm64 wheels exist, so `uv sync` itself succeeds. The failure mode is a **runtime `ImportError`** the first time `import pyodbc` runs: the wheel ships without an ODBC driver, so the dynamic loader cannot find `libodbc.dylib`. macOS users need `brew install unixodbc` once to put the dylib on the loader path; Linux users need `unixodbc-dev` (CI image already has it). Users who don't need differential validation can skip the group entirely with `uv sync --no-group validation` — that is the only documented "less than everything" path.
@@ -86,7 +86,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ssis2sql"
+name = "msb_ssis2sql"
 version = "0.1.0"
 description = "Convert SSIS data-flow transformations into consolidated, behaviour-equivalent T-SQL."
 readme = "README.md"
@@ -97,8 +97,8 @@ keywords = ["ssis", "dtsx", "etl", "t-sql", "sql-server", "transpiler"]
 dependencies = ["loguru>=0.7", "textual>=8.2"]
 
 [project.scripts]
-ssis2sql = "ssis2sql.cli:main"
-ssis2sql-web = "ssis2sql.web:main"
+msb_ssis2sql = "msb_ssis2sql.cli:main"
+msb_ssis2sql-web = "msb_ssis2sql.web:main"
 
 [dependency-groups]
 dev = [
@@ -122,7 +122,7 @@ validation = [
 default-groups = ["dev", "web", "validation"]
 
 [tool.setuptools.packages.find]
-include = ["ssis2sql*", "validation*"]
+include = ["msb_ssis2sql*", "validation*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -152,7 +152,7 @@ always present.
 - [ ] `uv sync` succeeds from a clean repo (no `.venv`, no `uv.lock`).
 - [ ] `.venv` is created at repo root.
 - [ ] `uv.lock` is created.
-- [ ] `uv run python -c "import ssis2sql, validation, textual_serve, pyodbc"` exits 0 (all four import).
+- [ ] `uv run python -c "import msb_ssis2sql, validation, textual_serve, pyodbc"` exits 0 (all four import).
 - [ ] `uv run pytest -q` runs and is green (proves `dev` group active).
 - [ ] `grep -n "optional-dependencies" pyproject.toml` returns nothing.
 
@@ -192,7 +192,7 @@ test:
 
 # Run the test suite with a line-coverage report.
 cov:
-    uv run pytest --cov=ssis2sql --cov-report=term-missing
+    uv run pytest --cov=msb_ssis2sql --cov-report=term-missing
 
 # Static lint via ruff (PEP 8 + pyflakes).
 lint:
@@ -200,25 +200,25 @@ lint:
 
 # Type-check the package with mypy.
 typecheck:
-    uv run mypy ssis2sql validation
+    uv run mypy msb_ssis2sql validation
 
 # Convert a .dtsx file to T-SQL and write to OUTFILE.
 # Usage: just migrate-file path/to/pkg.dtsx path/to/output.sql
 migrate-file FILE OUTFILE:
-    uv run python -m ssis2sql convert '{{FILE}}' -o '{{OUTFILE}}'
+    uv run python -m msb_ssis2sql convert '{{FILE}}' -o '{{OUTFILE}}'
 
 # Print the parsed component graph. Usage: just inspect path/to/pkg.dtsx
 inspect FILE:
-    uv run python -m ssis2sql inspect '{{FILE}}'
+    uv run python -m msb_ssis2sql inspect '{{FILE}}'
 
 # Convert the bundled example package and print the consolidated SQL.
 demo:
-    uv run python -m ssis2sql convert examples/sales_etl.dtsx
+    uv run python -m msb_ssis2sql convert examples/sales_etl.dtsx
 
 # Recursively convert every .dtsx under INPUT into OUTPUT, mirroring the input tree.
 # Usage: just migrate-directory path/to/input path/to/output
 migrate-directory INPUT OUTPUT:
-    uv run python -m ssis2sql convert-tree '{{INPUT}}' '{{OUTPUT}}'
+    uv run python -m msb_ssis2sql convert-tree '{{INPUT}}' '{{OUTPUT}}'
 
 # Convert every .dtsx under examples/samples into generated_scripts/*.sql.
 # Build copies under bin/ are skipped. Warnings are embedded in each .sql header.
@@ -230,18 +230,18 @@ convert-samples:
     while IFS= read -r -d '' src; do
         out="generated_scripts/$(basename "${src%.dtsx}").sql"
         echo "converting ${src#examples/samples/} -> ${out}"
-        uv run python -m ssis2sql convert "$src" -o "$out" -vv
+        uv run python -m msb_ssis2sql convert "$src" -o "$out" -vv
         count=$((count + 1))
     done < <(find examples/samples -name '*.dtsx' -not -path '*/bin/*' -print0 | sort -z)
     echo "done: ${count} package(s) converted into generated_scripts/"
 
-# Launch the Textual control-panel UI for ssis2sql.
+# Launch the Textual control-panel UI for msb_ssis2sql.
 tui:
-    uv run python -m ssis2sql.tui
+    uv run python -m msb_ssis2sql.tui
 
 # Serve the Textual TUI in a browser via textual-serve (default localhost:8000).
 web HOST="localhost" PORT="8000":
-    uv run python -m ssis2sql.web --host '{{HOST}}' --port '{{PORT}}'
+    uv run python -m msb_ssis2sql.web --host '{{HOST}}' --port '{{PORT}}'
 
 # Run the full differential validation suite (needs SQL Server; skips until golden exists).
 validate:
@@ -292,15 +292,15 @@ clean:
 
 ## Phase 3 — Propagate the change to docs, web error, and CI
 
-### 3a. `ssis2sql/web.py` — update the user-facing import-error hint
+### 3a. `msb_ssis2sql/web.py` — update the user-facing import-error hint
 
 Current (lines 32–38):
 
 ```python
 except ImportError as exc:
     print(
-        "ssis2sql-web: textual-serve is not installed. "
-        "Run 'just install-web' (or 'pip install ssis2sql[web]').",
+        "msb_ssis2sql-web: textual-serve is not installed. "
+        "Run 'just install-web' (or 'pip install msb_ssis2sql[web]').",
         file=sys.stderr,
     )
     raise SystemExit(2) from exc
@@ -311,7 +311,7 @@ After:
 ```python
 except ImportError as exc:
     print(
-        "ssis2sql-web: textual-serve is not installed. "
+        "msb_ssis2sql-web: textual-serve is not installed. "
         "Run 'just install' (or 'uv sync').",
         file=sys.stderr,
     )
@@ -346,7 +346,7 @@ Prerequisite: [uv](https://docs.astral.sh/uv/getting-started/installation/)
 (`brew install uv` on macOS).
 
 ```sh
-just install            # one command — installs ssis2sql + every dependency group
+just install            # one command — installs msb_ssis2sql + every dependency group
 # or, manually:
 uv sync
 ```
@@ -475,7 +475,7 @@ returned SHA matches.
 1. `rm -rf .venv *.egg-info` — start clean. `.venv-desloppify/` is another tool's state, already gitignored, and is intentionally NOT touched here.
 2. `just install` — proves the single-install path.
 3. `ls -la .venv uv.lock .python-version` — three artifacts exist.
-4. `uv run python -c "import ssis2sql, validation, textual, textual_serve, loguru, pyodbc, pandas, pyarrow, sqlglot, yaml, dotenv"` — every dep importable from one env.
+4. `uv run python -c "import msb_ssis2sql, validation, textual, textual_serve, loguru, pyodbc, pandas, pyarrow, sqlglot, yaml, dotenv"` — every dep importable from one env.
 5. `just test` — full existing pytest suite green; new behaviour adds zero tests (run `uv run pytest --collect-only -q | tail -1` first to record the baseline count, then verify it stays equal post-migration).
 6. `just lint` and `just typecheck` — establish baseline. Failures here do NOT block the sprint; they enter a follow-up ticket. The sprint deliverable is the *plumbing*, not codebase cleanliness.
 7. `just validate-static && just validate-unit` — validation framework green.
@@ -486,7 +486,7 @@ returned SHA matches.
    - `justfile`
    - `.python-version` (new)
    - `uv.lock` (new)
-   - `ssis2sql/web.py`
+   - `msb_ssis2sql/web.py`
    - `tests/test_web.py`
    - `README.md`
    - `validation/capture/RUNBOOK.md`

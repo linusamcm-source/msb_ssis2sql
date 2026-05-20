@@ -6,9 +6,9 @@ destination IR packages and converting them through ``convert_package``.
 """
 from __future__ import annotations
 
-from ssis2sql.generator import convert_package
-from ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Path, Port
-from ssis2sql.transforms.column_ops import (
+from msb_ssis2sql.generator import convert_package
+from msb_ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Path, Port
+from msb_ssis2sql.transforms.column_ops import (
     CopyColumnTranspiler,
     DataConversionTranspiler,
     DerivedColumnTranspiler,

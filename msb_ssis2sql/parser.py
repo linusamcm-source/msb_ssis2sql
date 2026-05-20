@@ -1,4 +1,4 @@
-"""Parse a .dtsx (SSIS package) XML document into the :mod:`ssis2sql.model` IR.
+"""Parse a .dtsx (SSIS package) XML document into the :mod:`msb_ssis2sql.model` IR.
 
 Two on-disk formats are handled transparently:
 

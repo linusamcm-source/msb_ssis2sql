@@ -6,9 +6,9 @@ no-match output (if present) becomes the anti-join.
 """
 from __future__ import annotations
 
-from ssis2sql.generator import convert_package
-from ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Path, Port
-from ssis2sql.transforms.lookup import LookupTranspiler
+from msb_ssis2sql.generator import convert_package
+from msb_ssis2sql.model import Column, Component, ComponentKind, DataFlow, Package, Path, Port
+from msb_ssis2sql.transforms.lookup import LookupTranspiler
 
 
 def test_lookup_transpiler_is_registered():

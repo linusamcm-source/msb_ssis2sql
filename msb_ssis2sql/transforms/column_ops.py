@@ -5,7 +5,7 @@ and add (or replace) a handful of computed columns. The output relation is the
 upstream relation's columns plus the new ones. The three differ only in how
 they compute the expression for one output column; the shared pass-through and
 column-merge skeleton lives in
-:func:`~ssis2sql.transforms.base.column_mapped_relation`.
+:func:`~msb_ssis2sql.transforms.base.column_mapped_relation`.
 """
 from __future__ import annotations
 
