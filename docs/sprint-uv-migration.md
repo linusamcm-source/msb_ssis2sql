@@ -26,8 +26,9 @@ docs surfaced in Phase 0; each phase cites the doc section it follows.
 | `uv run <cmd>` | Runs `<cmd>` inside `.venv`, auto-syncing first. Use `uv run pytest`, `uv run python -m ssis2sql ...`, etc. | `docs/concepts/projects/run.md` |
 | `uv lock` | Explicit lockfile (re)generation. | `docs/concepts/projects/sync.md` |
 | `uv python pin 3.X` | Writes `.python-version`; `uv` will fetch the interpreter if missing. | upstream `README.md` |
-| `[tool.uv] package = true` | Force editable install when `[build-system]` is defined. | `docs/concepts/projects/config.md` |
 | `[dependency-groups]` (PEP 735) | Project-local groups not exposed in published metadata; preferred over `[project.optional-dependencies]` for dev tooling. | `changelogs/0.4.x.md` (0.4.27) |
+
+Note on `[tool.uv] package`: when `[build-system]` is defined (we keep setuptools), `uv` installs the project by default per `docs/concepts/projects/config.md` — `package = true` is NOT required and adds no behaviour. Plan deliberately omits it.
 
 ### Anti-patterns (do NOT do)
 
@@ -36,6 +37,7 @@ docs surfaced in Phase 0; each phase cites the doc section it follows.
 - **Do not** mix `pip install -e .` with `uv sync` — choose one. Plan picks `uv sync`.
 - **Do not** drop `[build-system]`; without it `uv` won't install `ssis2sql` itself, only deps (per `docs/concepts/projects/config.md`).
 - **Do not** put `pytest`/`pytest-cov` in base `dependencies`; they belong in a PEP 735 group so wheels stay slim. (Single-install requirement is honoured by `default-groups`, not by polluting base deps.)
+- **Do not** add `[tool.uv] package = true` — when `[build-system]` is defined the project is installed by default; the flag is for projects that have no build system or want to override an opt-out.
 
 ### Current-state evidence (Read this session)
 
@@ -55,7 +57,7 @@ chosen shape:
 - **Base `[project.dependencies]`** keeps only runtime deps actually imported by `ssis2sql` (`loguru`, `textual`).
 - **`[dependency-groups]`** holds three groups: `dev`, `web`, `validation`.
 - **`[tool.uv] default-groups = ["dev", "web", "validation"]`** so plain `uv sync` (and any `uv run` from the justfile) installs *everything* — single command, single environment, no `--all-extras` / `--all-groups` flag needed on the happy path.
-- **Caveat (surface in README, not hidden):** the `validation` group pulls `pyodbc`, which needs a system ODBC driver to build on first install. macOS users without `unixodbc` will see a build error. Users who don't need differential validation can run `uv sync --no-group validation` to skip it. This is the only documented "less than everything" path.
+- **Caveat (surface in README, not hidden):** the `validation` group pulls `pyodbc`. With the post-bump floor (`pyodbc>=5.3`, see Phase 1) prebuilt cp314 arm64 wheels exist, so `uv sync` itself succeeds. The failure mode is a **runtime `ImportError`** the first time `import pyodbc` runs: the wheel ships without an ODBC driver, so the dynamic loader cannot find `libodbc.dylib`. macOS users need `brew install unixodbc` once to put the dylib on the loader path; Linux users need `unixodbc-dev` (CI image already has it). Users who don't need differential validation can skip the group entirely with `uv sync --no-group validation` — that is the only documented "less than everything" path.
 
 If the user later objects to pyodbc being default, the trivial alternative is to
 demote `validation` back to a non-default group: `default-groups = ["dev", "web"]`
@@ -107,9 +109,9 @@ dev = [
 ]
 web = ["textual-serve>=1.1"]
 validation = [
-    "pyodbc>=5.1",
-    "pandas>=2.2",
-    "pyarrow>=16.0",
+    "pyodbc>=5.3",
+    "pandas>=3.0",
+    "pyarrow>=24.0",
     "sqlglot>=25.0",
     "pyyaml>=6.0",
     "python-dotenv>=1.0",
@@ -117,7 +119,6 @@ validation = [
 
 [tool.uv]
 default-groups = ["dev", "web", "validation"]
-package = true
 
 [tool.setuptools.packages.find]
 include = ["ssis2sql*", "validation*"]
@@ -158,7 +159,8 @@ always present.
 
 - Don't leave `[project.optional-dependencies]` behind — purge it.
 - Don't add a `pytest` to base `dependencies` — keep it in `dev` group.
-- Don't drop `package = true` — without it, `uv` may skip building/installing `ssis2sql` itself when only deps are needed, breaking console scripts.
+- Don't add `[tool.uv] package = true` — redundant when `[build-system]` is defined; the project is installed by default. Reviewer caught this in round 1; do not re-introduce.
+- Don't downgrade the pyodbc/pandas/pyarrow floors below the cp314-wheel-supporting versions (`pyodbc>=5.3`, `pandas>=3.0`, `pyarrow>=24.0`) — older floors force source builds on Python 3.14.
 
 ---
 
@@ -315,8 +317,21 @@ except ImportError as exc:
     raise SystemExit(2) from exc
 ```
 
-Also update any matching test assertion in `tests/test_web.py` (verify with
-`grep -n "install-web\|ssis2sql\[web\]" tests/test_web.py` before editing).
+Also update `tests/test_web.py:77`. Current assertion:
+
+```python
+assert "install-web" in err
+```
+
+Replace with:
+
+```python
+assert "just install" in err
+```
+
+(`just install` is the stable substring of the new error message. Don't pin to
+`uv sync` — the prose order may change but `just install` is the canonical entry
+point referenced first.)
 
 ### 3b. `README.md` — install section
 
@@ -344,43 +359,63 @@ if it's not present.
 
 Also patch:
 
+**Live (non-historical) docs — full edit:**
+
 - `README.md:212` (`.venv/bin/python -m pytest` → `uv run pytest`).
+- `README.md:310` (`just install-validation` reference inside the CI/install diagram → `just install`).
 - `README.md:321` (`just install-validation` → `just install`).
-- `docs/sprint-validation-framework.md` lines 556, 766 (replace `pip install -e ".[validation]"` references with `uv sync` — these are historical docs, mark inline as "[updated for uv]" rather than rewriting the surrounding prose).
-- `docs/sprint-coverage-95.md:156` and `docs/epic-1-batch-convert-tui.md` lines 111, 357, 740 — same surgical inline updates.
 - `validation/capture/RUNBOOK.md:33` (Windows install hint) → `uv sync` (cross-platform).
 
-> Scope discipline: do NOT rewrite the surrounding prose in these historical
-> sprint/epic docs. Only swap the install command lines.
+**Historical sprint/epic docs — POLICY: leave content as-is, add grep exemption.**
+
+These files are *records* of past sprints and reflect the install path in force
+at the time. Rewriting them changes the historical record. The Phase 4 grep
+gate at step 11 is amended (see below) to add a per-file exemption list rather
+than touching the records:
+
+- `docs/sprint-validation-framework.md` — historical, exempt.
+- `docs/sprint-coverage-95.md` — historical, exempt.
+- `docs/epic-1-batch-convert-tui.md` — historical, exempt.
+- `docs/plan-tui-tabs.md` — historical, exempt.
+- `docs/plan-tui-validation-runner.md` — historical, exempt.
+
+The exempt list is enumerated explicitly in Phase 4 step 11 below so the gate is
+satisfiable. If the user later prefers to rewrite them, that is a follow-up
+ticket — out of scope for this sprint.
 
 ### 3c. `.github/workflows/*.yml` — CI
 
-Replace the `Install just` + `Install validation dependencies` steps with:
+**Retain** the existing `actions/setup-python@42375524e23c412d93fb67b49958b491fce71c38` step
+(explicit setup-python gives reliable interpreter caching even though `setup-uv`
+can fetch via `.python-version`). **Replace** only the `Install validation
+dependencies` step. The keep/add/remove diff:
+
+- Keep: `Checkout`, `Set up Python 3.14` (existing `actions/setup-python` SHA), `Install just`.
+- Add: `Install uv`, `Sync project`, `Lint`, `Typecheck`.
+- Remove: `Install validation dependencies` (its `run: just install-validation` line).
 
 ```yaml
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
 
-      - name: Install just
-        uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6  # v2.0.0
-
       - name: Sync project
         run: uv sync --locked
 
       - name: Lint
+        continue-on-error: true
         run: just lint
 
       - name: Typecheck
+        continue-on-error: true
         run: just typecheck
 ```
 
 The `--locked` flag (per `docs/guides/integration/github.md`) makes CI fail if
-`uv.lock` is stale, which is what we want. Keep the existing `just
-validate-static` and `just validate-unit` steps unchanged — they now resolve to
-`uv run pytest …` and pick up the synced env. `lint` and `typecheck` are
-non-blocking initially (allow `continue-on-error: true` on each step if the
-existing codebase is not yet ruff/mypy-clean — the first pass exists to
-establish a baseline, not to break CI).
+`uv.lock` is stale. Keep the existing `just validate-static` and `just
+validate-unit` steps unchanged — they now resolve to `uv run pytest …` and pick
+up the synced env. `lint` and `typecheck` carry `continue-on-error: true` so
+the first CI pass establishes a baseline without breaking the build; remove the
+flag in a follow-up sprint once the codebase is ruff/mypy-clean.
 
 **Action-pinning note.** The `setup-uv` SHA above is the one from upstream
 docs; before commit, verify it points at `v8.1.0` by running
@@ -389,8 +424,8 @@ returned SHA matches.
 
 ### Verification checklist
 
-- [ ] `grep -rn "install-web\|install-validation\|pip install -e" .` returns only intentional matches (e.g. doc archives explicitly marked historical).
-- [ ] `tests/test_web.py` still passes after the error-string change.
+- [ ] `git grep -n "install-web\|install-validation\|pip install -e" -- ':!docs/sprint-*.md' ':!docs/epic-*.md' ':!docs/plan-tui-*.md' ':!.repomix-output.xml' ':!.repomix-textual.xml'` returns zero matches.
+- [ ] `tests/test_web.py` passes after the line-77 assertion update.
 - [ ] CI workflow renders valid YAML (`yamllint` or `actionlint` if available).
 - [ ] CI green on a PR.
 
@@ -405,11 +440,11 @@ returned SHA matches.
 
 ### Sequence
 
-1. `rm -rf .venv .venv-desloppify *.egg-info` — start clean (the existing `.venv-desloppify` is unrelated to this migration and stays gitignored).
+1. `rm -rf .venv *.egg-info` — start clean. `.venv-desloppify/` is another tool's state, already gitignored, and is intentionally NOT touched here.
 2. `just install` — proves the single-install path.
 3. `ls -la .venv uv.lock .python-version` — three artifacts exist.
 4. `uv run python -c "import ssis2sql, validation, textual, textual_serve, loguru, pyodbc, pandas, pyarrow, sqlglot, yaml, dotenv"` — every dep importable from one env.
-5. `just test` — full suite green.
+5. `just test` — full suite green (162+ tests currently; new behaviour adds zero).
 6. `just lint` and `just typecheck` — establish baseline. Failures here do NOT block the sprint; they enter a follow-up ticket. The sprint deliverable is the *plumbing*, not codebase cleanliness.
 7. `just validate-static && just validate-unit` — validation framework green.
 8. `just demo`, `just tui` (Ctrl-C immediately), `just web &` + `curl -s localhost:8000 | head` then kill — runtime entry points work.
@@ -422,21 +457,38 @@ returned SHA matches.
    - `ssis2sql/web.py`
    - `tests/test_web.py`
    - `README.md`
-   - `docs/sprint-validation-framework.md`
-   - `docs/sprint-coverage-95.md`
-   - `docs/epic-1-batch-convert-tui.md`
    - `validation/capture/RUNBOOK.md`
    - `.github/workflows/<workflow>.yml`
-11. `git grep -n "\.venv/bin\|python3 -m venv"` — only matches should be inside `.repomix-output.xml` (stale snapshot, ignored) and inside `.venv*/` (ignored). No matches in tracked source/docs.
-12. `git grep -n "install-web\|install-validation\|pip install -e"` — same exclusion rule.
+   - (Historical docs intentionally NOT in this list — see §3b policy.)
+11. **Live-source grep gate.** Run:
+    ```sh
+    git grep -n '\.venv/bin\|python3 -m venv' -- \
+        ':!docs/sprint-*.md' ':!docs/epic-*.md' ':!docs/plan-tui-*.md' \
+        ':!.repomix-output.xml' ':!.repomix-textual.xml'
+    ```
+    Must return zero matches. The exempt globs cover historical sprint/epic
+    artifacts and the repomix snapshots — intentionally excluded per §3b.
+12. **Install-string gate.** Same exemption set:
+    ```sh
+    git grep -n 'install-web\|install-validation\|pip install -e' -- \
+        ':!docs/sprint-*.md' ':!docs/epic-*.md' ':!docs/plan-tui-*.md' \
+        ':!.repomix-output.xml' ':!.repomix-textual.xml'
+    ```
+    Must return zero matches.
+13. **Cross-platform `uv.lock` advisory.** After committing `uv.lock`, push a
+    draft PR and confirm CI's `uv sync --locked` succeeds on the Linux runner.
+    If it fails, regenerate locally with `uv lock` and re-push — do NOT bypass
+    `--locked`. `uv` lockfiles are universal-resolution per `docs/concepts/resolution.md`,
+    but pyodbc/pandas/pyarrow have platform-specific wheels and this is the
+    cheapest confirmation that the lockfile travels.
 
 ### Anti-pattern guards (final sweep)
 
 - No recipe still calls `.venv/bin/python`.
-- No doc still tells the user to run `pip install -e`.
+- No live (non-historical) doc still tells the user to run `pip install -e`.
 - `pyproject.toml` has no `[project.optional-dependencies]` table.
-- `uv.lock` is committed (not gitignored).
-- `.gitignore` does NOT add `uv.lock` (verify); it MAY add `.python-version`-style overrides per user preference, but the plan recommends committing `.python-version` too so the project pins consistently.
+- `uv.lock` is committed.
+- `.gitignore` is unchanged — verified clean (no `uv.lock` or `.python-version` entries needed, nothing to add).
 
 ---
 
