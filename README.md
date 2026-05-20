@@ -22,14 +22,24 @@ diff, run, and version-control.
 
 ## Install
 
+Prerequisite: [uv](https://docs.astral.sh/uv/getting-started/installation/)
+(`brew install uv` on macOS).
+
 ```sh
-just install            # creates .venv and installs ssis2sql + pytest
+just install            # one command — installs ssis2sql + every dependency group
 # or, manually:
-python3 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+uv sync
 ```
 
-One runtime dependency — [`loguru`](https://github.com/Delgan/loguru), for the
-logging instrumentation. Python 3.10+.
+Single install covers the CLI, the TUI, the web server, and the differential
+validation framework. Runtime deps: `loguru` (logging) and `textual` (TUI).
+Python 3.14 is pinned via `.python-version`; `uv` will fetch it automatically
+if it's not present.
+
+macOS users running the validation layer also need `brew install unixodbc`
+once so `import pyodbc` finds `libodbc.dylib` at runtime. Users who don't
+need differential validation can skip the group entirely with
+`uv sync --no-group validation`.
 
 ## Usage
 
@@ -209,7 +219,7 @@ tests/                    pytest suite
 ## Testing
 
 ```sh
-just test          # or: .venv/bin/python -m pytest
+just test          # or: uv run pytest
 ```
 
 ## Validation
@@ -307,7 +317,7 @@ every push and pull request:
 ```
 push / pull_request
   └── static-and-unit (ubuntu-latest)
-        ├── just install-validation
+        ├── just install
         ├── just validate-static   # no SQL Server
         └── just validate-unit     # no SQL Server
 ```
@@ -318,7 +328,7 @@ operator-provisioned SQL Server.
 ### Quick reference
 
 ```sh
-just install-validation   # install ssis2sql + validation deps into .venv
+just install              # one command — installs ssis2sql + every dependency group
 just validate-static      # static checks — no SQL Server (< 1 s)
 just validate-unit        # unit tests — no SQL Server
 just validate-cov         # unit tests with coverage report

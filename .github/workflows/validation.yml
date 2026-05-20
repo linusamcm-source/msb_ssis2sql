@@ -35,8 +35,19 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6  # v2.0.0
 
-      - name: Install validation dependencies
-        run: just install-validation
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
+
+      - name: Sync project
+        run: uv sync --locked
+
+      - name: Lint
+        continue-on-error: true
+        run: just lint
+
+      - name: Typecheck
+        continue-on-error: true
+        run: just typecheck
 
       - name: Static structural checks (no SQL Server required)
         run: just validate-static

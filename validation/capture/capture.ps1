@@ -3,11 +3,11 @@
     Golden-capture wrapper — run the Python harness for one or all corpus packages.
 
 .DESCRIPTION
-    Invokes validation/capture/capture.py via the Python virtual environment.
+    Invokes validation/capture/capture.py via uv.
     Designed for Windows operators who have:
       - SQL Server Integration Services (dtexec on PATH)
       - Microsoft ODBC Driver 18 for SQL Server
-      - Python 3.10+ with the validation extra installed
+      - Requires uv on PATH (https://docs.astral.sh/uv/) and Python 3.11+
       - A .env file with MSSQL_* connection parameters
 
     See validation/capture/RUNBOOK.md for full setup instructions.
@@ -25,10 +25,6 @@
 
 .PARAMETER DtexecPath
     Optional path to dtexec.exe. Defaults to dtexec on PATH.
-
-.PARAMETER VenvPython
-    Path to the Python executable inside the virtual environment.
-    Defaults to .venv\Scripts\python.exe (Windows venv convention).
 
 .EXAMPLE
     # Capture golden fixtures for a single package
@@ -55,26 +51,23 @@ param(
     [Parameter(ParameterSetName = 'All')]
     [string] $CorpusRoot = "validation\corpus",
 
-    [string] $DtexecPath = $null,
-
-    [string] $VenvPython = ".venv\Scripts\python.exe"
+    [string] $DtexecPath = $null
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 # ---------------------------------------------------------------------------
-# Locate repo root (the directory that contains the .venv folder).
+# Locate repo root (the directory that contains pyproject.toml).
 # ---------------------------------------------------------------------------
 $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
-if (-not (Test-Path (Join-Path $repoRoot ".venv"))) {
+if (-not (Test-Path (Join-Path $repoRoot "pyproject.toml"))) {
     # Fallback: assume script is run from the repo root.
     $repoRoot = $PWD.Path
 }
 
-$python = Join-Path $repoRoot $VenvPython
-if (-not (Test-Path $python)) {
-    Write-Error "Python not found at $python. Run: python -m venv .venv && .venv\Scripts\pip install -e '.[validation]'"
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Error "uv not found on PATH. Install uv (https://docs.astral.sh/uv/) and run: uv sync"
     exit 1
 }
 
@@ -118,7 +111,7 @@ foreach ($pkg in $packages) {
 
     Push-Location $repoRoot
     try {
-        & $python @captureArgs
+        & uv run python @captureArgs
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "Capture FAILED for $pkgName (exit code $LASTEXITCODE)"
             $failed += $pkgName
