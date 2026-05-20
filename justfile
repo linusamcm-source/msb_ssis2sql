@@ -85,5 +85,5 @@ validate-static:
 
 # Remove the virtual environment, lockfile-tracked caches, build artefacts.
 clean:
-    rm -rf .venv .pytest_cache build dist *.egg-info
+    rm -rf .venv .pytest_cache .ruff_cache .mypy_cache build dist *.egg-info
     find . -name __pycache__ -type d -prune -exec rm -rf {} +

@@ -24,7 +24,7 @@ Download from https://learn.microsoft.com/sql/connect/odbc/download-odbc-driver-
 Get-OdbcDriver -Name "*SQL Server*"   # must list "ODBC Driver 18 for SQL Server"
 ```
 
-### 3. Python 3.10+ with the validation extra
+### 3. Python 3.11+ (3.14 recommended; pinned via .python-version)
 
 From the repo root:
 
