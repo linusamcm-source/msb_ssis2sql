@@ -11,7 +11,11 @@ requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Linus McManamey" }]
 keywords = ["ssis", "dtsx", "etl", "t-sql", "sql-server", "transpiler"]
-dependencies = ["loguru>=0.7", "textual>=8.2"]
+dependencies = [
+    "loguru>=0.7",
+    "pre-commit>=4.6.0",
+    "textual>=8.2",
+]
 
 [project.scripts]
 ssis2sql = "ssis2sql.cli:main"
