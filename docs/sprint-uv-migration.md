@@ -335,7 +335,8 @@ point referenced first.)
 
 ### 3b. `README.md` — install section
 
-Replace lines 23–32 with:
+Replace lines 23–32 (the old `## Install` heading through the stale "One
+runtime dependency — loguru" sentence) with:
 
 ```markdown
 ## Install
@@ -350,12 +351,19 @@ uv sync
 ```
 
 Single install covers the CLI, the TUI, the web server, and the differential
-validation framework. macOS users without `unixodbc` who don't need the
-validation layer can run `uv sync --no-group validation` instead.
-
+validation framework. Runtime deps: `loguru` (logging) and `textual` (TUI).
 Python 3.14 is pinned via `.python-version`; `uv` will fetch it automatically
 if it's not present.
+
+macOS users running the validation layer also need `brew install unixodbc`
+once so `import pyodbc` finds `libodbc.dylib` at runtime. Users who don't
+need differential validation can skip the group entirely with
+`uv sync --no-group validation`.
 ```
+
+Note: the old "One runtime dependency — loguru" sentence is *intentionally
+dropped* — base deps are now `loguru + textual` (see Phase 1 pyproject shape),
+so the singular claim is stale.
 
 Also patch:
 
@@ -364,7 +372,17 @@ Also patch:
 - `README.md:212` (`.venv/bin/python -m pytest` → `uv run pytest`).
 - `README.md:310` (`just install-validation` reference inside the CI/install diagram → `just install`).
 - `README.md:321` (`just install-validation` → `just install`).
-- `validation/capture/RUNBOOK.md:33` (Windows install hint) → `uv sync` (cross-platform).
+- `validation/capture/RUNBOOK.md` — Windows operator runbook, full migration:
+  - Line 33: `.venv\Scripts\pip install -e ".[validation]"` → `uv sync`
+  - Line 39: `.venv\Scripts\python -c "import validation.capture.capture; print('OK')"` → `uv run python -c "import validation.capture.capture; print('OK')"`
+  - Line 70: `.venv\Scripts\python -c "` → `uv run python -c "`
+  - Line 87: `.venv\Scripts\python -m validation.capture.capture --package-dir ...` → `uv run python -m validation.capture.capture --package-dir ...`
+  - Line 110: `.venv\Scripts\python -c "` → `uv run python -c "`
+- `validation/capture/capture.ps1` — PowerShell launcher, full migration:
+  - Line 31 (docstring): `Defaults to .venv\Scripts\python.exe (Windows venv convention).` → drop the `.venv\Scripts\` reference; replace with `Defaults to running via 'uv run python'.`
+  - Line 60: `[string] $VenvPython = ".venv\Scripts\python.exe"` — replace with `[string] $UvRun = "uv"` (or equivalent). The `Test-Path` checks at lines 67-70 then test for `.python-version` (or `pyproject.toml`) instead of `.venv\`.
+  - Line 77: `Write-Error "Python not found at $python. Run: python -m venv .venv && .venv\Scripts\pip install -e '.[validation]'"` → `Write-Error "uv not found on PATH. Install uv (https://docs.astral.sh/uv/) and run: uv sync"`
+  - Invocations downstream of the resolved `$VenvPython` / `$UvRun` change from `& $VenvPython <args>` to `& $UvRun run python <args>`. Implementer: read the full file before editing — there are likely additional sites near the bottom that need the same swap.
 
 **Historical sprint/epic docs — POLICY: leave content as-is, add grep exemption.**
 
@@ -444,7 +462,7 @@ returned SHA matches.
 2. `just install` — proves the single-install path.
 3. `ls -la .venv uv.lock .python-version` — three artifacts exist.
 4. `uv run python -c "import ssis2sql, validation, textual, textual_serve, loguru, pyodbc, pandas, pyarrow, sqlglot, yaml, dotenv"` — every dep importable from one env.
-5. `just test` — full suite green (162+ tests currently; new behaviour adds zero).
+5. `just test` — full existing pytest suite green; new behaviour adds zero tests (run `uv run pytest --collect-only -q | tail -1` first to record the baseline count, then verify it stays equal post-migration).
 6. `just lint` and `just typecheck` — establish baseline. Failures here do NOT block the sprint; they enter a follow-up ticket. The sprint deliverable is the *plumbing*, not codebase cleanliness.
 7. `just validate-static && just validate-unit` — validation framework green.
 8. `just demo`, `just tui` (Ctrl-C immediately), `just web &` + `curl -s localhost:8000 | head` then kill — runtime entry points work.
@@ -458,16 +476,19 @@ returned SHA matches.
    - `tests/test_web.py`
    - `README.md`
    - `validation/capture/RUNBOOK.md`
-   - `.github/workflows/<workflow>.yml`
+   - `validation/capture/capture.ps1`
+   - `.github/workflows/validation.yml`
    - (Historical docs intentionally NOT in this list — see §3b policy.)
 11. **Live-source grep gate.** Run:
     ```sh
-    git grep -n '\.venv/bin\|python3 -m venv' -- \
+    git grep -nE '\.venv/bin|\.venv\\Scripts|python3 -m venv' -- \
         ':!docs/sprint-*.md' ':!docs/epic-*.md' ':!docs/plan-tui-*.md' \
         ':!.repomix-output.xml' ':!.repomix-textual.xml'
     ```
-    Must return zero matches. The exempt globs cover historical sprint/epic
-    artifacts and the repomix snapshots — intentionally excluded per §3b.
+    Must return zero matches. The Windows `.venv\Scripts` variant is included
+    so the RUNBOOK and capture.ps1 migration is enforced. The exempt globs
+    cover historical sprint/epic artifacts and the repomix snapshots —
+    intentionally excluded per §3b.
 12. **Install-string gate.** Same exemption set:
     ```sh
     git grep -n 'install-web\|install-validation\|pip install -e' -- \
@@ -484,8 +505,9 @@ returned SHA matches.
 
 ### Anti-pattern guards (final sweep)
 
-- No recipe still calls `.venv/bin/python`.
+- No recipe still calls `.venv/bin/python` (Unix) or `.venv\Scripts\python` (Windows).
 - No live (non-historical) doc still tells the user to run `pip install -e`.
+- `validation/capture/capture.ps1` no longer hardcodes `.venv\Scripts\python.exe`; it invokes `uv run python ...` instead.
 - `pyproject.toml` has no `[project.optional-dependencies]` table.
 - `uv.lock` is committed.
 - `.gitignore` is unchanged — verified clean (no `uv.lock` or `.python-version` entries needed, nothing to add).
