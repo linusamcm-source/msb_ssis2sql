@@ -15,9 +15,10 @@ test:
 cov:
     .venv/bin/python -m pytest --cov=ssis2sql --cov-report=term-missing
 
-# Convert a .dtsx file to T-SQL on stdout. Usage: just convert path/to/pkg.dtsx
-convert FILE:
-    .venv/bin/python -m ssis2sql convert '{{FILE}}'
+# Convert a .dtsx file to T-SQL and write to OUTFILE.
+# Usage: just migrate-file path/to/pkg.dtsx path/to/output.sql
+migrate-file FILE OUTFILE:
+    .venv/bin/python -m ssis2sql convert '{{FILE}}' -o '{{OUTFILE}}'
 
 # Print the parsed component graph. Usage: just inspect path/to/pkg.dtsx
 inspect FILE:
@@ -28,8 +29,8 @@ demo:
     .venv/bin/python -m ssis2sql convert examples/sales_etl.dtsx
 
 # Recursively convert every .dtsx under INPUT into OUTPUT, mirroring the input tree.
-# Usage: just convert-tree path/to/input path/to/output
-convert-tree INPUT OUTPUT:
+# Usage: just migrate-directory path/to/input path/to/output
+migrate-directory INPUT OUTPUT:
     .venv/bin/python -m ssis2sql convert-tree '{{INPUT}}' '{{OUTPUT}}'
 
 # Convert every .dtsx under examples/samples into generated_scripts/*.sql.
@@ -51,6 +52,15 @@ convert-samples:
 # Launch the Textual control-panel UI for ssis2sql.
 tui:
     .venv/bin/python -m ssis2sql.tui
+
+# Install ssis2sql + the web-serving extra (textual-serve) into .venv.
+install-web:
+    python3 -m venv .venv
+    .venv/bin/pip install -e ".[web]"
+
+# Serve the Textual TUI in a browser via textual-serve (default localhost:8000).
+web HOST="localhost" PORT="8000":
+    .venv/bin/python -m ssis2sql.web --host '{{HOST}}' --port '{{PORT}}'
 
 # Install ssis2sql + the validation extra into .venv (system pyodbc driver required).
 install-validation:

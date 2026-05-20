@@ -25,8 +25,21 @@ _VALIDATION_LAYERS = (
 )
 
 _MIGRATION_RECIPES = frozenset(
-    {"convert", "convert-samples", "convert-tree", "demo", "inspect"}
+    {"migrate-file", "convert-samples", "migrate-directory", "demo", "inspect"}
 )
+# Recipes that take a single .dtsx file path and stream output to stdout/the Log
+# pane (DtsxPickerPane). 'inspect' lives here; 'migrate-file' has its own pane
+# because it requires an output directory.
+_INSPECT_RECIPES = ("inspect",)
+# Recipes that pair a .dtsx file with an output directory (MigrateFilePane).
+_FILE_RECIPE = "migrate-file"
+# The directory-mirror recipe — wired to ConvertTreePane / _launch_convert_tree.
+_DIRECTORY_RECIPE = "migrate-directory"
+
+
+def _button_label(name: str) -> str:
+    """Sidebar-button label = recipe name with '-' rendered as a space."""
+    return name.replace("-", " ")
 _VALIDATION_TAB_RECIPES = frozenset({"validate-cov"})  # plus synthetic "validation"
 # (tab id suffix, tab title) in display order.
 _TABS = (("migration", "Migration"),
@@ -78,7 +91,7 @@ def discover_recipes(repo_root: Path) -> list[Recipe]:
 
 from textual import work  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
-from textual.containers import Horizontal, VerticalScroll  # noqa: E402
+from textual.containers import Horizontal, Vertical, VerticalScroll  # noqa: E402
 from textual.widgets import (  # noqa: E402
     Button,
     ContentSwitcher,
@@ -160,11 +173,30 @@ def write_env(path: Path, values: dict[str, str]) -> None:
 # Story 3 — filtered DirectoryTree for .dtsx file pickers.
 # ---------------------------------------------------------------------------
 
-class DtsxTree(DirectoryTree):
-    """A DirectoryTree that shows only directories and .dtsx files."""
+def _is_hidden_dir(p: Path) -> bool:
+    """True for directories whose name starts with '.' or '_' (dotfiles, dunders)."""
+    return p.is_dir() and (p.name.startswith(".") or p.name.startswith("_"))
+
+
+class FilteredDirTree(DirectoryTree):
+    """DirectoryTree that hides directories whose name starts with '.' or '_'.
+
+    Used as the base for any DirectoryTree shown in the TUI — keeps the listing
+    free of dotfiles (.git, .venv, .cache) and underscored build dirs (__pycache__).
+    """
 
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
-        return [p for p in paths if p.is_dir() or p.suffix.lower() == ".dtsx"]
+        return [p for p in paths if not _is_hidden_dir(p)]
+
+
+class DtsxTree(FilteredDirTree):
+    """A DirectoryTree that shows only directories and .dtsx files,
+    with dotfile and underscored directories hidden (inherited from FilteredDirTree).
+    """
+
+    def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
+        return [p for p in super().filter_paths(paths)
+                if p.is_dir() or p.suffix.lower() == ".dtsx"]
 
 
 # ---------------------------------------------------------------------------
@@ -185,33 +217,83 @@ class RecipePane(VerticalScroll):
 
 
 class ConvertTreePane(VerticalScroll):
-    """Picker pane for convert-tree: two DirectoryTree + two Input widgets.
+    """Picker pane for the directory-mirror recipe: input and output dir pickers
+    laid out side-by-side, an "Add directory" button below the output, and the
+    Run button anchored in the bottom-right of a 4:1 horizontal row.
 
-    Layout (top to bottom):
-      Input ct-input-path  — source of truth for the input root
-      DirectoryTree ct-input-tree  — browse; selecting a dir fills ct-input-path
-      Input ct-output-path — source of truth for the output root
-      DirectoryTree ct-output-tree — browse; selecting a dir fills ct-output-path
-      Button run-convert-tree
-      Log    log-convert-tree
+    Widget IDs:
+      ct-input-path  / ct-input-tree   — input dir (left column)
+      ct-output-path / ct-output-tree  — output dir (right column)
+      ct-newdir-name / ct-add-dir      — "Add directory" controls (right column)
+      run-<recipe>                     — Migrate directory button (bottom-right)
+      log-<recipe>                     — output log (full width)
     """
 
     def __init__(self, recipe: Recipe) -> None:
-        super().__init__(id="pane-convert-tree")
+        super().__init__(id=f"pane-{_slug(recipe.name)}")
         self._recipe = recipe
 
     def compose(self) -> ComposeResult:
-        yield Static(self._recipe.doc or self._recipe.name, classes="pane-desc")
-        yield Input(id="ct-input-path", placeholder="Input parent directory…")
-        yield DirectoryTree(Path.home(), id="ct-input-tree")
-        yield Input(id="ct-output-path", placeholder="Output directory…")
-        yield DirectoryTree(Path.home(), id="ct-output-tree")
-        yield Button("Convert tree", id="run-convert-tree", variant="primary")
-        yield Log(id="log-convert-tree")
+        name = self._recipe.name
+        yield Static(self._recipe.doc or name, classes="pane-desc")
+        with Horizontal(classes="pane-trees-row"):
+            with Vertical(classes="pane-tree-col"):
+                yield Input(id="ct-input-path", placeholder="Input parent directory…")
+                yield FilteredDirTree(Path.home(), id="ct-input-tree")
+            with Vertical(classes="pane-tree-col"):
+                yield Input(id="ct-output-path", placeholder="Output directory…")
+                yield FilteredDirTree(Path.home(), id="ct-output-tree")
+                with Horizontal(classes="pane-add-dir-row"):
+                    yield Input(id="ct-newdir-name", placeholder="New folder name…")
+                    yield Button("Add directory", id="ct-add-dir")
+        with Horizontal(classes="pane-bottom-row"):
+            yield Static("", classes="pane-bottom-spacer")
+            yield Button(_button_label(name).capitalize(),
+                         id=f"run-{_slug(name)}", variant="primary",
+                         classes="pane-bottom-button")
+        yield Log(id=f"log-{_slug(name)}")
+
+
+class MigrateFilePane(VerticalScroll):
+    """Picker pane for migrate-file: input .dtsx file picker on the left, output
+    directory picker on the right, with an "Add directory" button below the
+    output and a Run button anchored in the bottom-right of a 4:1 row.
+
+    Widget IDs:
+      file-migrate-file / tree-migrate-file  — input .dtsx (left column)
+      mf-output-path    / mf-output-tree     — output dir (right column)
+      mf-newdir-name    / mf-add-dir         — "Add directory" controls
+      run-migrate-file                       — Migrate file button (bottom-right)
+      log-migrate-file                       — output log
+    """
+
+    def __init__(self, recipe: Recipe) -> None:
+        super().__init__(id=f"pane-{_slug(recipe.name)}")
+        self._recipe = recipe
+
+    def compose(self) -> ComposeResult:
+        name = self._recipe.name
+        yield Static(self._recipe.doc or name, classes="pane-desc")
+        with Horizontal(classes="pane-trees-row"):
+            with Vertical(classes="pane-tree-col"):
+                yield Input(id=f"file-{_slug(name)}", placeholder="Path to .dtsx file…")
+                yield DtsxTree(Path.home(), id=f"tree-{_slug(name)}")
+            with Vertical(classes="pane-tree-col"):
+                yield Input(id="mf-output-path", placeholder="Output directory…")
+                yield FilteredDirTree(Path.home(), id="mf-output-tree")
+                with Horizontal(classes="pane-add-dir-row"):
+                    yield Input(id="mf-newdir-name", placeholder="New folder name…")
+                    yield Button("Add directory", id="mf-add-dir")
+        with Horizontal(classes="pane-bottom-row"):
+            yield Static("", classes="pane-bottom-spacer")
+            yield Button(_button_label(name).capitalize(),
+                         id=f"run-{_slug(name)}", variant="primary",
+                         classes="pane-bottom-button")
+        yield Log(id=f"log-{_slug(name)}")
 
 
 class DtsxPickerPane(VerticalScroll):
-    """Picker pane for convert/inspect: DtsxTree filtered to .dtsx files + Input."""
+    """Picker pane for inspect: DtsxTree filtered to .dtsx files + Input."""
 
     def __init__(self, recipe: Recipe) -> None:
         super().__init__(id=f"pane-{_slug(recipe.name)}")
@@ -284,6 +366,16 @@ class Ssis2SqlTUI(App):
     #validation-buttons { height: auto; }
     #validation-buttons Button { margin: 0 1 0 0; }
     #validation-summary { margin: 1 0; color: $text-muted; }
+    .pane-trees-row { height: 1fr; margin-bottom: 1; }
+    .pane-tree-col { width: 1fr; height: 100%; }
+    .pane-tree-col Input { width: 100%; height: 3; }
+    .pane-tree-col DirectoryTree { height: 1fr; }
+    .pane-add-dir-row { height: 3; margin-top: 1; }
+    .pane-add-dir-row Input { width: 1fr; }
+    .pane-add-dir-row Button { width: auto; margin-left: 1; }
+    .pane-bottom-row { height: 3; margin-bottom: 1; }
+    .pane-bottom-spacer { width: 4fr; height: 3; }
+    .pane-bottom-button { width: 1fr; height: 3; }
     """
     BINDINGS = [("q", "quit", "Quit")]
 
@@ -320,9 +412,9 @@ class Ssis2SqlTUI(App):
                     with Horizontal():
                         with VerticalScroll(classes="tab-sidebar"):
                             for r in recipes:
-                                yield Button(r.name if r.name not in ("validation", "config")
-                                             else title,
-                                             id=f"nav-{_slug(r.name)}")
+                                label = title if r.name in ("validation", "config") \
+                                    else _button_label(r.name)
+                                yield Button(label, id=f"nav-{_slug(r.name)}")
                         initial = f"pane-{_slug(recipes[0].name)}" if recipes else None
                         with ContentSwitcher(id=f"content-{tab}", classes="tab-content",
                                              initial=initial):
@@ -336,9 +428,11 @@ class Ssis2SqlTUI(App):
             return ConfigPane(recipe, self._repo_root)
         if recipe.name == "validation":
             return ValidationPane(recipe)
-        if recipe.name == "convert-tree":
+        if recipe.name == _DIRECTORY_RECIPE:
             return ConvertTreePane(recipe)
-        if recipe.name in ("convert", "inspect"):
+        if recipe.name == _FILE_RECIPE:
+            return MigrateFilePane(recipe)
+        if recipe.name in _INSPECT_RECIPES:
             return DtsxPickerPane(recipe)
         return RecipePane(recipe)
 
@@ -368,13 +462,25 @@ class Ssis2SqlTUI(App):
         elif bid == "run-config-save":
             self._save_config()
             return
-        elif bid == "run-convert-tree":
+        elif bid == f"run-{_DIRECTORY_RECIPE}":
             self._launch_convert_tree()
+        elif bid == f"run-{_FILE_RECIPE}":
+            self._launch_migrate_file()
+        elif bid == "ct-add-dir":
+            self._add_directory(output_input="ct-output-path",
+                                name_input="ct-newdir-name",
+                                tree="ct-output-tree",
+                                log=f"log-{_DIRECTORY_RECIPE}")
+        elif bid == "mf-add-dir":
+            self._add_directory(output_input="mf-output-path",
+                                name_input="mf-newdir-name",
+                                tree="mf-output-tree",
+                                log=f"log-{_FILE_RECIPE}")
         elif bid.removeprefix("run-") in _VALIDATION_LAYER_RECIPES:
             self._launch_validation(bid[len("run-"):])
         elif bid.startswith("run-"):
             recipe = bid[len("run-"):]
-            if recipe in ("convert", "inspect"):
+            if recipe in _INSPECT_RECIPES:
                 self._launch_dtsx_picker(recipe)
             else:
                 self._launch(recipe)
@@ -405,11 +511,11 @@ class Ssis2SqlTUI(App):
         self._run_validation(recipe, log, summary)
 
     # ------------------------------------------------------------------
-    # convert-tree launcher — validates both inputs first.
+    # Directory-mirror launcher — validates both inputs first.
     # ------------------------------------------------------------------
 
     def _launch_convert_tree(self) -> None:
-        log = self.query_one("#log-convert-tree", Log)
+        log = self.query_one(f"#log-{_DIRECTORY_RECIPE}", Log)
         log.clear()
         in_path = self.query_one("#ct-input-path", Input).value.strip()
         out_path = self.query_one("#ct-output-path", Input).value.strip()
@@ -422,10 +528,68 @@ class Ssis2SqlTUI(App):
         if not out_path:
             log.write_line("error: output path is empty")
             return
-        self._run_recipe("convert-tree", [in_path, out_path], log)
+        self._run_recipe(_DIRECTORY_RECIPE, [in_path, out_path], log)
 
     # ------------------------------------------------------------------
-    # DtsxTree pane launcher (convert / inspect).
+    # migrate-file launcher — validates input file + output dir, builds OUTFILE.
+    # ------------------------------------------------------------------
+
+    def _launch_migrate_file(self) -> None:
+        log = self.query_one(f"#log-{_FILE_RECIPE}", Log)
+        log.clear()
+        file_path = self.query_one(f"#file-{_FILE_RECIPE}", Input).value.strip()
+        output_dir = self.query_one("#mf-output-path", Input).value.strip()
+        if not file_path:
+            log.write_line("error: input .dtsx file is empty")
+            return
+        if not Path(file_path).is_file():
+            log.write_line(f"error: input file does not exist: {file_path}")
+            return
+        if not output_dir:
+            log.write_line("error: output directory is empty")
+            return
+        if not Path(output_dir).is_dir():
+            log.write_line(f"error: output directory does not exist: {output_dir}")
+            return
+        outfile = str(Path(output_dir) / (Path(file_path).stem + ".sql"))
+        self._run_recipe(_FILE_RECIPE, [file_path, outfile], log)
+
+    # ------------------------------------------------------------------
+    # Add-directory: create a new folder under the currently-selected output
+    # path and reload the matching tree so the new dir appears immediately.
+    # ------------------------------------------------------------------
+
+    def _add_directory(self, *, output_input: str, name_input: str,
+                       tree: str, log: str) -> None:
+        log_widget = self.query_one(f"#{log}", Log)
+        base = self.query_one(f"#{output_input}", Input).value.strip()
+        name = self.query_one(f"#{name_input}", Input).value.strip()
+        if not base:
+            log_widget.write_line("error: output directory is empty")
+            return
+        if not Path(base).is_dir():
+            log_widget.write_line(f"error: output directory does not exist: {base}")
+            return
+        if not name:
+            log_widget.write_line("error: new folder name is empty")
+            return
+        # Forbid path separators in the new name — keeps the create call local
+        # to the chosen output directory.
+        if "/" in name or "\\" in name:
+            log_widget.write_line("error: new folder name must not contain path separators")
+            return
+        new_path = Path(base) / name
+        try:
+            new_path.mkdir()
+        except OSError as exc:
+            log_widget.write_line(f"error: could not create {new_path}: {exc}")
+            return
+        log_widget.write_line(f"created {new_path}")
+        self.query_one(f"#{tree}", FilteredDirTree).reload()
+        self.query_one(f"#{name_input}", Input).value = ""
+
+    # ------------------------------------------------------------------
+    # DtsxTree pane launcher (inspect).
     # ------------------------------------------------------------------
 
     def _launch_dtsx_picker(self, recipe: str) -> None:
@@ -497,17 +661,16 @@ class Ssis2SqlTUI(App):
         target_id = {
             "ct-input-tree": "ct-input-path",
             "ct-output-tree": "ct-output-path",
+            "mf-output-tree": "mf-output-path",
         }.get(event.control.id)
         if target_id:
             self.query_one(f"#{target_id}", Input).value = str(event.path)
 
     def on_directory_tree_file_selected(self, event) -> None:
         """Fill the file Input when a .dtsx is selected in a DtsxTree picker."""
-        # ct-* trees are directory pickers — file clicks on them are no-ops.
-        tree_to_input = {
-            "tree-convert": "file-convert",
-            "tree-inspect": "file-inspect",
-        }
+        # ct-* / mf-output-tree are directory pickers — file clicks are no-ops.
+        tree_to_input = {f"tree-{r}": f"file-{r}"
+                         for r in (_FILE_RECIPE, *_INSPECT_RECIPES)}
         target_id = tree_to_input.get(event.control.id)
         if target_id:
             self.query_one(f"#{target_id}", Input).value = str(event.path)
@@ -517,6 +680,7 @@ class Ssis2SqlTUI(App):
         input_to_tree = {
             "ct-input-path": "ct-input-tree",
             "ct-output-path": "ct-output-tree",
+            "mf-output-path": "mf-output-tree",
         }
         widget_id = event.input.id
         tree_id = input_to_tree.get(widget_id)

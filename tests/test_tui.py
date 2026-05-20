@@ -4,7 +4,7 @@ Story 2 — pure-helper tests cover find_repo_root and discover_recipes; Textual
 pilot tests cover App composition, sidebar navigation, the recipe runner, and the
 quit binding.
 
-Story 3 — pilot tests for the DirectoryTree picker panes: convert-tree pane widget
+Story 3 — pilot tests for the DirectoryTree picker panes: migrate-directory pane widget
 layout, directory-selection fills Input, re-root on Enter, Convert-tree validation
 (empty/invalid path → error in Log, no worker launch), DtsxTree.filter_paths
 keeps only dirs and .dtsx files, and ct-* file-click is a no-op.
@@ -40,7 +40,7 @@ from ssis2sql.tui import (
 
 # ---------------------------------------------------------------------------
 # Shared fixture: captured just --dump --dump-format json payload.
-# Contains opus, tui, a private recipe, and convert-tree so the tests can
+# Contains opus, tui, a private recipe, and migrate-directory so the tests can
 # verify the correct filtering behaviour.
 # ---------------------------------------------------------------------------
 
@@ -58,8 +58,8 @@ _JUST_DUMP = json.dumps({
             "private": False,
             "parameters": [],
         },
-        "convert": {
-            "name": "convert",
+        "migrate-file": {
+            "name": "migrate-file",
             "doc": "Convert a .dtsx file to T-SQL.",
             "private": False,
             "parameters": [{"name": "FILE", "kind": "singular"}],
@@ -70,8 +70,8 @@ _JUST_DUMP = json.dumps({
             "private": False,
             "parameters": [],
         },
-        "convert-tree": {
-            "name": "convert-tree",
+        "migrate-directory": {
+            "name": "migrate-directory",
             "doc": "Recursively convert a directory.",
             "private": False,
             "parameters": [
@@ -195,22 +195,22 @@ def test_discover_recipes_excludes_private_recipes(tmp_path, fake_subprocess_run
 
 
 def test_discover_recipes_includes_convert_tree(tmp_path, fake_subprocess_run):
-    """convert-tree (Story 1) is present in the recipe list."""
+    """migrate-directory (Story 1) is present in the recipe list."""
     names = [r.name for r in discover_recipes(tmp_path)]
-    assert "convert-tree" in names
+    assert "migrate-directory" in names
 
 
 def test_discover_recipes_params_for_convert(tmp_path, fake_subprocess_run):
-    """Recipe.params for 'convert' is exactly ['FILE']."""
+    """Recipe.params for 'migrate-file' is exactly ['FILE']."""
     recipes = discover_recipes(tmp_path)
-    convert = next(r for r in recipes if r.name == "convert")
+    convert = next(r for r in recipes if r.name == "migrate-file")
     assert convert.params == ["FILE"]
 
 
 def test_discover_recipes_params_for_convert_tree(tmp_path, fake_subprocess_run):
-    """Recipe.params for 'convert-tree' is ['INPUT', 'OUTPUT']."""
+    """Recipe.params for 'migrate-directory' is ['INPUT', 'OUTPUT']."""
     recipes = discover_recipes(tmp_path)
-    ct = next(r for r in recipes if r.name == "convert-tree")
+    ct = next(r for r in recipes if r.name == "migrate-directory")
     assert ct.params == ["INPUT", "OUTPUT"]
 
 
@@ -456,7 +456,7 @@ async def test_q_key_quits_app_when_focus_not_on_input(monkeypatch, tmp_path):
 #   - Widget ids ct-input-tree / ct-output-tree / ct-input-path / ct-output-path
 #     / file-convert / tree-convert / tree-inspect do not exist yet (NoMatches)
 #
-# All pilot tests use a two-recipe list that includes "convert-tree" and "convert"
+# All pilot tests use a two-recipe list that includes "migrate-directory" and "convert"
 # so _build_pane branching is exercised.  A tmp_path directory is used wherever
 # a real filesystem path is required to be a directory.
 # ---------------------------------------------------------------------------
@@ -464,12 +464,12 @@ async def test_q_key_quits_app_when_focus_not_on_input(monkeypatch, tmp_path):
 def _picker_recipes() -> list[Recipe]:
     """Minimal recipe list that triggers picker-pane branching.
 
-    convert, convert-tree and inspect are all in ``_MIGRATION_RECIPES``, so all
+    convert, migrate-directory and inspect are all in ``_MIGRATION_RECIPES``, so all
     three picker panes live under the Migration tab.
     """
     return [
-        Recipe(name="convert", doc="Convert a .dtsx.", params=["FILE"]),
-        Recipe(name="convert-tree", doc="Recursively convert.", params=["INPUT", "OUTPUT"]),
+        Recipe(name="migrate-file", doc="Convert a .dtsx.", params=["FILE"]),
+        Recipe(name="migrate-directory", doc="Recursively convert.", params=["INPUT", "OUTPUT"]),
         Recipe(name="inspect", doc="Inspect a .dtsx.", params=["FILE"]),
     ]
 
@@ -487,13 +487,13 @@ async def _activate_tab(app, pilot, tab_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AC 1 — convert-tree pane has two DirectoryTree widgets and two Input widgets.
+# AC 1 — migrate-directory pane has two DirectoryTree widgets and two Input widgets.
 # ---------------------------------------------------------------------------
 
 async def test_convert_tree_pane_has_two_directory_trees_and_two_inputs(
     monkeypatch, tmp_path
 ):
-    """AC 1: the convert-tree pane contains ct-input-tree, ct-output-tree,
+    """AC 1: the migrate-directory pane contains ct-input-tree, ct-output-tree,
     ct-input-path, and ct-output-path."""
     import ssis2sql.tui as tui_mod
     from textual.widgets import DirectoryTree, Input
@@ -503,8 +503,8 @@ async def test_convert_tree_pane_has_two_directory_trees_and_two_inputs(
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        # Switch to the convert-tree pane.
-        await pilot.click("#nav-convert-tree")
+        # Switch to the migrate-directory pane.
+        await pilot.click("#nav-migrate-directory")
         await pilot.pause()
 
         # Both DirectoryTree widgets must be present with their plan-specified ids.
@@ -532,7 +532,7 @@ async def test_selecting_input_directory_fills_ct_input_path(monkeypatch, tmp_pa
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        await pilot.click("#nav-convert-tree")
+        await pilot.click("#nav-migrate-directory")
         await pilot.pause()
 
         # Simulate a DirectorySelected event from ct-input-tree by calling the
@@ -561,7 +561,7 @@ async def test_selecting_output_directory_fills_ct_output_path(monkeypatch, tmp_
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        await pilot.click("#nav-convert-tree")
+        await pilot.click("#nav-migrate-directory")
         await pilot.pause()
 
         mock_event = SimpleNamespace(
@@ -592,7 +592,7 @@ async def test_two_trees_are_distinguished_by_control_id_not_order(
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        await pilot.click("#nav-convert-tree")
+        await pilot.click("#nav-migrate-directory")
         await pilot.pause()
 
         app.on_directory_tree_directory_selected(
@@ -624,7 +624,7 @@ async def test_submitting_valid_path_reroots_ct_input_tree(monkeypatch, tmp_path
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        await pilot.click("#nav-convert-tree")
+        await pilot.click("#nav-migrate-directory")
         await pilot.pause()
 
         # Simulate Input.Submitted by calling the handler directly.
@@ -663,14 +663,14 @@ async def test_convert_tree_with_empty_input_path_writes_error_to_log(
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        await pilot.click("#nav-convert-tree")
+        await pilot.click("#nav-migrate-directory")
         await pilot.pause()
 
         # Leave both Inputs empty and press the Convert tree button.
-        await pilot.click("#run-convert-tree")
+        await pilot.click("#run-migrate-directory")
         await pilot.pause()
 
-        log = app.query_one("#log-convert-tree", Log)
+        log = app.query_one("#log-migrate-directory", Log)
         log_text = "\n".join(log.lines)
         # An error line must appear.
         assert len(log.lines) > 0, "Log must have at least one error line"
@@ -693,7 +693,7 @@ async def test_convert_tree_with_nonexistent_input_path_writes_error_to_log(
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        await pilot.click("#nav-convert-tree")
+        await pilot.click("#nav-migrate-directory")
         await pilot.pause()
 
         # Simulate filling in a non-existent path via the handler.
@@ -704,21 +704,21 @@ async def test_convert_tree_with_nonexistent_input_path_writes_error_to_log(
             )
         )
         await pilot.pause()
-        await pilot.click("#run-convert-tree")
+        await pilot.click("#run-migrate-directory")
         await pilot.pause()
 
-        log = app.query_one("#log-convert-tree", Log)
+        log = app.query_one("#log-migrate-directory", Log)
         assert len(log.lines) > 0, "Log must contain an error message"
         assert popen_calls == [], "Popen must not be called for non-existent input"
 
 
 # ---------------------------------------------------------------------------
-# AC 4 (positive path) — valid paths run just convert-tree with both paths.
+# AC 4 (positive path) — valid paths run just migrate-directory with both paths.
 # ---------------------------------------------------------------------------
 
 async def test_convert_tree_with_valid_paths_runs_recipe(monkeypatch, tmp_path):
     """AC 4: Convert tree with valid input and output dirs calls Popen with
-    'convert-tree', the input path, and the output path; Log receives output."""
+    'migrate-directory', the input path, and the output path; Log receives output."""
     import ssis2sql.tui as tui_mod
     from textual.widgets import Input, Log
 
@@ -745,7 +745,7 @@ async def test_convert_tree_with_valid_paths_runs_recipe(monkeypatch, tmp_path):
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        await pilot.click("#nav-convert-tree")
+        await pilot.click("#nav-migrate-directory")
         await pilot.pause()
 
         # Fill both Inputs via the directory-selection handler (same as AC2 tests).
@@ -763,20 +763,20 @@ async def test_convert_tree_with_valid_paths_runs_recipe(monkeypatch, tmp_path):
         )
         await pilot.pause()
 
-        await pilot.click("#run-convert-tree")
+        await pilot.click("#run-migrate-directory")
         # Give the thread worker time to finish.
         await pilot.pause(delay=0.5)
 
         # Popen must have been called exactly once.
         assert len(popen_calls) == 1, "Popen must be called exactly once for a valid run"
-        # The command list must contain "convert-tree" and both paths.
+        # The command list must contain "migrate-directory" and both paths.
         cmd = popen_calls[0][0]  # first positional arg is the command sequence
-        assert "convert-tree" in cmd, "command must include 'convert-tree'"
+        assert "migrate-directory" in cmd, "command must include 'migrate-directory'"
         assert str(input_dir) in cmd, "command must include the input path"
         assert str(output_dir) in cmd, "command must include the output path"
 
         # The Log must contain the streamed output and the exit line.
-        log = app.query_one("#log-convert-tree", Log)
+        log = app.query_one("#log-migrate-directory", Log)
         all_lines = "\n".join(log.lines)
         assert "converted pkg.dtsx" in all_lines, "stdout line must appear in Log"
         assert "[exit 0]" in all_lines, "[exit 0] must appear in Log"
@@ -800,17 +800,17 @@ async def test_selecting_dtsx_in_convert_pane_fills_file_input(monkeypatch, tmp_
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        await pilot.click("#nav-convert")
+        await pilot.click("#nav-migrate-file")
         await pilot.pause()
 
         mock_event = SimpleNamespace(
-            control=SimpleNamespace(id="tree-convert"),
+            control=SimpleNamespace(id="tree-migrate-file"),
             path=dtsx_file,
         )
         app.on_directory_tree_file_selected(mock_event)
         await pilot.pause()
 
-        assert app.query_one("#file-convert", Input).value == str(dtsx_file)
+        assert app.query_one("#file-migrate-file", Input).value == str(dtsx_file)
 
 
 # ---------------------------------------------------------------------------
@@ -854,6 +854,63 @@ def test_dtsx_tree_filter_paths_case_insensitive_dtsx(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Hidden-directory filter — '.' and '_' prefixed dirs are dropped from any
+# DirectoryTree in the TUI (FilteredDirTree, and DtsxTree by inheritance).
+# ---------------------------------------------------------------------------
+
+def test_filtered_dir_tree_hides_dotfile_and_underscored_dirs(tmp_path):
+    """FilteredDirTree drops .git / .venv / __pycache__ and keeps regular dirs."""
+    from ssis2sql.tui import FilteredDirTree
+
+    visible = tmp_path / "src"
+    hidden_dot = tmp_path / ".git"
+    hidden_under = tmp_path / "__pycache__"
+    for d in (visible, hidden_dot, hidden_under):
+        d.mkdir()
+
+    tree = FilteredDirTree(tmp_path)
+    kept = list(tree.filter_paths([visible, hidden_dot, hidden_under]))
+
+    assert visible in kept, "regular directories must be kept"
+    assert hidden_dot not in kept, ".git must be hidden"
+    assert hidden_under not in kept, "__pycache__ must be hidden"
+
+
+def test_filtered_dir_tree_keeps_dotfile_named_files(tmp_path):
+    """File names that start with '.' are kept — only directories are filtered."""
+    from ssis2sql.tui import FilteredDirTree
+
+    dotfile = tmp_path / ".env"
+    dotfile.write_text("", encoding="utf-8")
+
+    tree = FilteredDirTree(tmp_path)
+    kept = list(tree.filter_paths([dotfile]))
+
+    assert dotfile in kept, "files starting with '.' must still be visible"
+
+
+def test_dtsx_tree_hides_dotfile_and_underscored_dirs(tmp_path):
+    """DtsxTree inherits the hidden-dir filter from FilteredDirTree."""
+    from ssis2sql.tui import DtsxTree
+
+    visible = tmp_path / "packages"
+    hidden_dot = tmp_path / ".venv"
+    hidden_under = tmp_path / "_build"
+    for d in (visible, hidden_dot, hidden_under):
+        d.mkdir()
+    dtsx = tmp_path / "pkg.dtsx"
+    dtsx.write_text("", encoding="utf-8")
+
+    tree = DtsxTree(tmp_path)
+    kept = list(tree.filter_paths([visible, hidden_dot, hidden_under, dtsx]))
+
+    assert visible in kept
+    assert dtsx in kept, ".dtsx files must still be kept"
+    assert hidden_dot not in kept
+    assert hidden_under not in kept
+
+
+# ---------------------------------------------------------------------------
 # AC 6 — file-click on ct-input-tree / ct-output-tree is a no-op.
 # ---------------------------------------------------------------------------
 
@@ -873,7 +930,7 @@ async def test_file_click_on_ct_input_tree_does_not_change_input(
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        await pilot.click("#nav-convert-tree")
+        await pilot.click("#nav-migrate-directory")
         await pilot.pause()
 
         # Record the input value before the (spurious) file-click event.
@@ -916,7 +973,7 @@ async def test_convert_tree_with_empty_output_path_writes_error_to_log(
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        await pilot.click("#nav-convert-tree")
+        await pilot.click("#nav-migrate-directory")
         await pilot.pause()
 
         # Fill the input path with a valid directory; leave output empty.
@@ -927,10 +984,10 @@ async def test_convert_tree_with_empty_output_path_writes_error_to_log(
             )
         )
         await pilot.pause()
-        await pilot.click("#run-convert-tree")
+        await pilot.click("#run-migrate-directory")
         await pilot.pause()
 
-        log = app.query_one("#log-convert-tree", Log)
+        log = app.query_one("#log-migrate-directory", Log)
         assert len(log.lines) > 0, "Log must contain an error line for empty output path"
         assert popen_calls == [], "Popen must not be called when output path is empty"
 
@@ -942,16 +999,19 @@ async def test_convert_tree_with_empty_output_path_writes_error_to_log(
 async def test_convert_pane_run_button_calls_popen_with_file_path(
     monkeypatch, tmp_path
 ):
-    """AC 5(c) (SPEC-3-M1): pressing Run in the convert pane calls Popen with
-    'convert' and the selected file path — proving the full launch path works."""
+    """SPEC-3-M1 + migrate-file output-dir: pressing Run with both a .dtsx input
+    and an output directory selected calls Popen with 'migrate-file', the input
+    file, and a constructed OUTFILE = <output_dir>/<stem>.sql."""
     import ssis2sql.tui as tui_mod
-    from textual.widgets import Log
+    from textual.widgets import Input, Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _picker_recipes())
 
     dtsx_file = tmp_path / "sales_etl.dtsx"
     dtsx_file.write_text("", encoding="utf-8")
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
 
     fake_proc = MagicMock()
     fake_proc.stdout = iter([])
@@ -967,28 +1027,195 @@ async def test_convert_pane_run_button_calls_popen_with_file_path(
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        await pilot.click("#nav-convert")
+        await pilot.click("#nav-migrate-file")
         await pilot.pause()
 
         # Select the .dtsx file via the file-selected handler.
         app.on_directory_tree_file_selected(
             SimpleNamespace(
-                control=SimpleNamespace(id="tree-convert"),
+                control=SimpleNamespace(id="tree-migrate-file"),
                 path=dtsx_file,
             )
         )
+        # Select the output directory via the directory-selected handler.
+        app.on_directory_tree_directory_selected(
+            SimpleNamespace(
+                control=SimpleNamespace(id="mf-output-tree"),
+                path=output_dir,
+            )
+        )
         await pilot.pause()
+        assert app.query_one("#mf-output-path", Input).value == str(output_dir)
 
-        await pilot.click("#run-convert")
+        await pilot.click("#run-migrate-file")
         await pilot.pause(delay=0.5)
 
         assert len(popen_calls) == 1, "Popen must be called exactly once"
         cmd = popen_calls[0][0]
-        assert "convert" in cmd, "command must include 'convert'"
+        assert "migrate-file" in cmd, "command must include 'migrate-file'"
         assert str(dtsx_file) in cmd, "command must include the dtsx file path"
+        expected_outfile = str(output_dir / "sales_etl.sql")
+        assert expected_outfile in cmd, (
+            f"command must include the constructed OUTFILE: {expected_outfile}"
+        )
 
-        log = app.query_one("#log-convert", Log)
+        log = app.query_one("#log-migrate-file", Log)
         assert "[exit 0]" in "\n".join(log.lines)
+
+
+# ---------------------------------------------------------------------------
+# migrate-file empty/invalid output → error, no Popen.
+# ---------------------------------------------------------------------------
+
+async def test_migrate_file_with_empty_output_writes_error_and_skips_popen(
+    monkeypatch, tmp_path
+):
+    """A valid .dtsx input but empty output directory must log an error and
+    must not launch Popen."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Log
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _picker_recipes())
+
+    dtsx_file = tmp_path / "pkg.dtsx"
+    dtsx_file.write_text("", encoding="utf-8")
+
+    popen_calls: list = []
+    monkeypatch.setattr(
+        subprocess, "Popen", lambda *a, **kw: popen_calls.append(a) or MagicMock()
+    )
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        await pilot.click("#nav-migrate-file")
+        await pilot.pause()
+        app.on_directory_tree_file_selected(
+            SimpleNamespace(
+                control=SimpleNamespace(id="tree-migrate-file"),
+                path=dtsx_file,
+            )
+        )
+        await pilot.pause()
+        await pilot.click("#run-migrate-file")
+        await pilot.pause()
+
+        log = app.query_one("#log-migrate-file", Log)
+        assert any("output directory is empty" in ln for ln in log.lines)
+        assert popen_calls == [], "Popen must not run without an output dir"
+
+
+# ---------------------------------------------------------------------------
+# "Add directory" button — creates a new folder at the selected output path.
+# ---------------------------------------------------------------------------
+
+async def test_add_directory_in_migrate_directory_pane_creates_folder(
+    monkeypatch, tmp_path
+):
+    """Clicking ct-add-dir with a populated output path and new-folder-name
+    creates the named folder inside the output dir and clears the name input."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Button, Input, Log
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _picker_recipes())
+
+    output_dir = tmp_path / "outroot"
+    output_dir.mkdir()
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        await pilot.click("#nav-migrate-directory")
+        await pilot.pause()
+        app.query_one("#ct-output-path", Input).value = str(output_dir)
+        app.query_one("#ct-newdir-name", Input).value = "subdir"
+        await pilot.pause()
+        app.query_one("#ct-add-dir", Button).press()
+        await pilot.pause()
+
+        new_dir = output_dir / "subdir"
+        assert new_dir.is_dir(), "new folder must be created on disk"
+        # name input cleared so the next add doesn't double-up.
+        assert app.query_one("#ct-newdir-name", Input).value == ""
+        log = app.query_one("#log-migrate-directory", Log)
+        assert any("created" in ln for ln in log.lines)
+
+
+async def test_add_directory_rejects_empty_name(monkeypatch, tmp_path):
+    """ct-add-dir with an empty new-folder-name writes an error and creates nothing."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Button, Input, Log
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _picker_recipes())
+
+    output_dir = tmp_path / "outroot"
+    output_dir.mkdir()
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        await pilot.click("#nav-migrate-directory")
+        await pilot.pause()
+        app.query_one("#ct-output-path", Input).value = str(output_dir)
+        await pilot.pause()
+        app.query_one("#ct-add-dir", Button).press()
+        await pilot.pause()
+
+        log = app.query_one("#log-migrate-directory", Log)
+        assert any("new folder name is empty" in ln for ln in log.lines)
+        assert list(output_dir.iterdir()) == [], "no folder must be created"
+
+
+async def test_add_directory_rejects_path_separator(monkeypatch, tmp_path):
+    """Folder names containing '/' or '\\' must be rejected (escape prevention)."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Button, Input, Log
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _picker_recipes())
+
+    output_dir = tmp_path / "outroot"
+    output_dir.mkdir()
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        await pilot.click("#nav-migrate-directory")
+        await pilot.pause()
+        app.query_one("#ct-output-path", Input).value = str(output_dir)
+        app.query_one("#ct-newdir-name", Input).value = "../escape"
+        await pilot.pause()
+        app.query_one("#ct-add-dir", Button).press()
+        await pilot.pause()
+
+        log = app.query_one("#log-migrate-directory", Log)
+        assert any("must not contain path separators" in ln for ln in log.lines)
+        assert not (output_dir.parent / "escape").exists()
+
+
+async def test_add_directory_in_migrate_file_pane_creates_folder(
+    monkeypatch, tmp_path
+):
+    """mf-add-dir mirrors ct-add-dir for the migrate-file pane."""
+    import ssis2sql.tui as tui_mod
+    from textual.widgets import Button, Input
+
+    monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
+    monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _picker_recipes())
+
+    output_dir = tmp_path / "mf-out"
+    output_dir.mkdir()
+
+    app = Ssis2SqlTUI()
+    async with app.run_test() as pilot:
+        await pilot.click("#nav-migrate-file")
+        await pilot.pause()
+        app.query_one("#mf-output-path", Input).value = str(output_dir)
+        app.query_one("#mf-newdir-name", Input).value = "generated"
+        await pilot.pause()
+        app.query_one("#mf-add-dir", Button).press()
+        await pilot.pause()
+
+        assert (output_dir / "generated").is_dir()
 
 
 # ---------------------------------------------------------------------------
@@ -1010,21 +1237,21 @@ async def test_convert_pane_run_with_nonexistent_file_writes_error(
 
     app = Ssis2SqlTUI()
     async with app.run_test() as pilot:
-        await pilot.click("#nav-convert")
+        await pilot.click("#nav-migrate-file")
         await pilot.pause()
 
         # Set a non-existent file path via the handler.
         app.on_directory_tree_file_selected(
             SimpleNamespace(
-                control=SimpleNamespace(id="tree-convert"),
+                control=SimpleNamespace(id="tree-migrate-file"),
                 path=tmp_path / "does_not_exist.dtsx",
             )
         )
         await pilot.pause()
-        await pilot.click("#run-convert")
+        await pilot.click("#run-migrate-file")
         await pilot.pause()
 
-        log = app.query_one("#log-convert", Log)
+        log = app.query_one("#log-migrate-file", Log)
         assert len(log.lines) > 0, "Log must contain an error for non-existent file"
         assert popen_calls == [], "Popen must not be called for non-existent file"
 
@@ -1037,7 +1264,7 @@ async def test_convert_pane_run_with_nonexistent_file_writes_error(
 
 def test_justfile_convert_tree_single_quotes_block_injection(tmp_path):
     """SEC-3 regression: a shell-command-substitution payload in INPUT must not
-    execute.  Passes the sentinel path via $(touch …) into just convert-tree;
+    execute.  Passes the sentinel path via $(touch …) into just migrate-directory;
     the sentinel file must not appear on disk after the call."""
     import subprocess as sp
 
@@ -1051,7 +1278,7 @@ def test_justfile_convert_tree_single_quotes_block_injection(tmp_path):
     payload = f"/nonexistent/$(touch {sentinel})"
 
     sp.run(
-        ["just", "convert-tree", payload, str(out_dir)],
+        ["just", "migrate-directory", payload, str(out_dir)],
         cwd=repo_root,
         capture_output=True,
         text=True,
@@ -1059,7 +1286,7 @@ def test_justfile_convert_tree_single_quotes_block_injection(tmp_path):
 
     assert not sentinel.exists(), (
         "command injection succeeded: the sentinel was created, "
-        "meaning {{INPUT}} is not single-quoted in the convert-tree recipe"
+        "meaning {{INPUT}} is not single-quoted in the migrate-directory recipe"
     )
 
 
