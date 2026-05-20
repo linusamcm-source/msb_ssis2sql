@@ -27,8 +27,7 @@
     Optional path to dtexec.exe. Defaults to dtexec on PATH.
 
 .PARAMETER VenvPython
-    Path to the Python executable inside the virtual environment.
-    Defaults to .venv\Scripts\python.exe (Windows venv convention).
+    Defaults to running via 'uv run python'.
 
 .EXAMPLE
     # Capture golden fixtures for a single package
@@ -57,7 +56,6 @@ param(
 
     [string] $DtexecPath = $null,
 
-    [string] $VenvPython = ".venv\Scripts\python.exe"
 )
 
 Set-StrictMode -Version Latest
@@ -72,9 +70,8 @@ if (-not (Test-Path (Join-Path $repoRoot ".venv"))) {
     $repoRoot = $PWD.Path
 }
 
-$python = Join-Path $repoRoot $VenvPython
-if (-not (Test-Path $python)) {
-    Write-Error "Python not found at $python. Run: python -m venv .venv && .venv\Scripts\pip install -e '.[validation]'"
+if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+    Write-Error "uv not found on PATH. Install uv (https://docs.astral.sh/uv/) and run: uv sync"
     exit 1
 }
 
@@ -118,7 +115,7 @@ foreach ($pkg in $packages) {
 
     Push-Location $repoRoot
     try {
-        & $python @captureArgs
+        & uv run python @captureArgs
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "Capture FAILED for $pkgName (exit code $LASTEXITCODE)"
             $failed += $pkgName

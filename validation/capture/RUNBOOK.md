@@ -29,14 +29,13 @@ Get-OdbcDriver -Name "*SQL Server*"   # must list "ODBC Driver 18 for SQL Server
 From the repo root:
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\pip install -e ".[validation]"
+uv sync
 ```
 
 Verify:
 
 ```powershell
-.venv\Scripts\python -c "import validation.capture.capture; print('OK')"
+uv run python -c "import validation.capture.capture; print('OK')"
 ```
 
 ### 4. Remote SQL Server access
@@ -67,7 +66,7 @@ Run from the repo root on the Windows capture host:
 ### Step 1 — Verify the package transpiles
 
 ```powershell
-.venv\Scripts\python -c "
+uv run python -c "
 from ssis2sql import convert_file, ConvertOptions
 from pathlib import Path
 r = convert_file(Path('validation/corpus/passthrough_basic/package.dtsx'), ConvertOptions())
@@ -84,7 +83,7 @@ print('SQL length:', len(r.sql)); print('Warnings:', r.warnings)
 Or invoke Python directly:
 
 ```powershell
-.venv\Scripts\python -m validation.capture.capture --package-dir validation\corpus\passthrough_basic
+uv run python -m validation.capture.capture --package-dir validation\corpus\passthrough_basic
 ```
 
 The harness will:
@@ -107,7 +106,7 @@ ls validation\corpus\passthrough_basic\golden\
 Get-Content validation\corpus\passthrough_basic\golden\manifest.json
 
 # Spot-check a Parquet file (requires pandas/pyarrow)
-.venv\Scripts\python -c "
+uv run python -c "
 import pandas as pd
 df = pd.read_parquet('validation/corpus/passthrough_basic/golden/dst_items.parquet')
 print(df)

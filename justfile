@@ -2,88 +2,88 @@
 opus:
     @claude --dangerously-skip-permissions --effort 'max' --enable-auto-mode "/caveman"
 
-# Create the virtual environment and install ssis2sql with dev dependencies.
+# Sync the project venv with every dependency group (single unified install).
 install:
-    python3 -m venv .venv
-    .venv/bin/pip install -e ".[dev]"
+    uv sync
+
+# Refresh the lockfile (use after editing pyproject.toml dependencies).
+lock:
+    uv lock
 
 # Run the test suite.
 test:
-    .venv/bin/python -m pytest
+    uv run pytest
 
 # Run the test suite with a line-coverage report.
 cov:
-    .venv/bin/python -m pytest --cov=ssis2sql --cov-report=term-missing
+    uv run pytest --cov=ssis2sql --cov-report=term-missing
+
+# Static lint via ruff (PEP 8 + pyflakes).
+lint:
+    uv run ruff check .
+
+# Type-check the package with mypy.
+typecheck:
+    uv run mypy ssis2sql validation
 
 # Convert a .dtsx file to T-SQL and write to OUTFILE.
 # Usage: just migrate-file path/to/pkg.dtsx path/to/output.sql
 migrate-file FILE OUTFILE:
-    .venv/bin/python -m ssis2sql convert '{{FILE}}' -o '{{OUTFILE}}'
+    uv run python -m ssis2sql convert '{{FILE}}' -o '{{OUTFILE}}'
 
 # Print the parsed component graph. Usage: just inspect path/to/pkg.dtsx
 inspect FILE:
-    .venv/bin/python -m ssis2sql inspect '{{FILE}}'
+    uv run python -m ssis2sql inspect '{{FILE}}'
 
 # Convert the bundled example package and print the consolidated SQL.
 demo:
-    .venv/bin/python -m ssis2sql convert examples/sales_etl.dtsx
+    uv run python -m ssis2sql convert examples/sales_etl.dtsx
 
 # Recursively convert every .dtsx under INPUT into OUTPUT, mirroring the input tree.
 # Usage: just migrate-directory path/to/input path/to/output
 migrate-directory INPUT OUTPUT:
-    .venv/bin/python -m ssis2sql convert-tree '{{INPUT}}' '{{OUTPUT}}'
+    uv run python -m ssis2sql convert-tree '{{INPUT}}' '{{OUTPUT}}'
 
 # Convert every .dtsx under examples/samples into generated_scripts/*.sql.
 # Build copies under bin/ are skipped. Warnings are embedded in each .sql header.
 convert-samples:
     #!/usr/bin/env bash
     set -euo pipefail
-    if [ ! -x .venv/bin/python ]; then echo "run 'just install' first" >&2; exit 1; fi
     mkdir -p generated_scripts
     count=0
     while IFS= read -r -d '' src; do
         out="generated_scripts/$(basename "${src%.dtsx}").sql"
         echo "converting ${src#examples/samples/} -> ${out}"
-        .venv/bin/python -m ssis2sql convert "$src" -o "$out" -vv 
+        uv run python -m ssis2sql convert "$src" -o "$out" -vv
         count=$((count + 1))
     done < <(find examples/samples -name '*.dtsx' -not -path '*/bin/*' -print0 | sort -z)
     echo "done: ${count} package(s) converted into generated_scripts/"
 
 # Launch the Textual control-panel UI for ssis2sql.
 tui:
-    .venv/bin/python -m ssis2sql.tui
-
-# Install ssis2sql + the web-serving extra (textual-serve) into .venv.
-install-web:
-    python3 -m venv .venv
-    .venv/bin/pip install -e ".[web]"
+    uv run python -m ssis2sql.tui
 
 # Serve the Textual TUI in a browser via textual-serve (default localhost:8000).
 web HOST="localhost" PORT="8000":
-    .venv/bin/python -m ssis2sql.web --host '{{HOST}}' --port '{{PORT}}'
-
-# Install ssis2sql + the validation extra into .venv (system pyodbc driver required).
-install-validation:
-    python3 -m venv .venv
-    .venv/bin/pip install -e ".[validation]"
+    uv run python -m ssis2sql.web --host '{{HOST}}' --port '{{PORT}}'
 
 # Run the full differential validation suite (needs SQL Server; skips until golden exists).
 validate:
-    .venv/bin/python -m pytest validation/ -m validation
+    uv run pytest validation/ -m validation
 
 # Run the framework's own unit tests (no SQL Server required).
 validate-unit:
-    .venv/bin/python -m pytest validation/tests
+    uv run pytest validation/tests
 
 # Run framework unit tests with a coverage report for the validation package.
 validate-cov:
-    .venv/bin/python -m pytest validation/tests --cov=validation --cov-report=term-missing --cov-report=json
+    uv run pytest validation/tests --cov=validation --cov-report=term-missing --cov-report=json
 
 # Run the static structural checks (no SQL Server required).
 validate-static:
-    .venv/bin/python -m pytest validation/test_static.py
+    uv run pytest validation/test_static.py
 
-# Remove the virtual environment, build artefacts, and caches.
+# Remove the virtual environment, lockfile-tracked caches, build artefacts.
 clean:
     rm -rf .venv .pytest_cache build dist *.egg-info
     find . -name __pycache__ -type d -prune -exec rm -rf {} +
