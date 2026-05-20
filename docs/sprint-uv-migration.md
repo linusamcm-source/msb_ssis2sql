@@ -27,6 +27,7 @@ docs surfaced in Phase 0; each phase cites the doc section it follows.
 | `uv lock` | Explicit lockfile (re)generation. | `docs/concepts/projects/sync.md` |
 | `uv python pin 3.X` | Writes `.python-version`; `uv` will fetch the interpreter if missing. | upstream `README.md` |
 | `[dependency-groups]` (PEP 735) | Project-local groups not exposed in published metadata; preferred over `[project.optional-dependencies]` for dev tooling. | `changelogs/0.4.x.md` (0.4.27) |
+| `uv sync --no-group <name>` | Excludes a specific dependency group from the sync without removing it from `default-groups`. Used by README's "skip validation" escape hatch. | `docs/concepts/projects/sync.md` |
 
 Note on `[tool.uv] package`: when `[build-system]` is defined (we keep setuptools), `uv` installs the project by default per `docs/concepts/projects/config.md` — `package = true` is NOT required and adds no behaviour. Plan deliberately omits it.
 
@@ -373,16 +374,29 @@ Also patch:
 - `README.md:310` (`just install-validation` reference inside the CI/install diagram → `just install`).
 - `README.md:321` (`just install-validation` → `just install`).
 - `validation/capture/RUNBOOK.md` — Windows operator runbook, full migration:
-  - Line 33: `.venv\Scripts\pip install -e ".[validation]"` → `uv sync`
+  - **Lines 31–34 (collapse).** The current PowerShell fence contains two lines (`python -m venv .venv` then `.venv\Scripts\pip install -e ".[validation]"`). Replace the entire fenced block with a single line:
+    ```powershell
+    uv sync
+    ```
+    `uv sync` creates `.venv` itself; the explicit `python -m venv` step is redundant and would contradict the uv workflow.
   - Line 39: `.venv\Scripts\python -c "import validation.capture.capture; print('OK')"` → `uv run python -c "import validation.capture.capture; print('OK')"`
   - Line 70: `.venv\Scripts\python -c "` → `uv run python -c "`
   - Line 87: `.venv\Scripts\python -m validation.capture.capture --package-dir ...` → `uv run python -m validation.capture.capture --package-dir ...`
   - Line 110: `.venv\Scripts\python -c "` → `uv run python -c "`
 - `validation/capture/capture.ps1` — PowerShell launcher, full migration:
   - Line 31 (docstring): `Defaults to .venv\Scripts\python.exe (Windows venv convention).` → drop the `.venv\Scripts\` reference; replace with `Defaults to running via 'uv run python'.`
-  - Line 60: `[string] $VenvPython = ".venv\Scripts\python.exe"` — replace with `[string] $UvRun = "uv"` (or equivalent). The `Test-Path` checks at lines 67-70 then test for `.python-version` (or `pyproject.toml`) instead of `.venv\`.
-  - Line 77: `Write-Error "Python not found at $python. Run: python -m venv .venv && .venv\Scripts\pip install -e '.[validation]'"` → `Write-Error "uv not found on PATH. Install uv (https://docs.astral.sh/uv/) and run: uv sync"`
-  - Invocations downstream of the resolved `$VenvPython` / `$UvRun` change from `& $VenvPython <args>` to `& $UvRun run python <args>`. Implementer: read the full file before editing — there are likely additional sites near the bottom that need the same swap.
+  - Line 60 (param block): `[string] $VenvPython = ".venv\Scripts\python.exe"` → remove the `$VenvPython` parameter entirely (no path is needed because `uv` resolves the interpreter). The param block loses one line.
+  - **Lines 75–79 (resolution + Test-Path).** The current shape is `$python = Join-Path $repoRoot $VenvPython` followed by `if (-not (Test-Path $python)) { Write-Error ...; exit ... }`. Replace BOTH with:
+    ```powershell
+    if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
+        Write-Error "uv not found on PATH. Install uv (https://docs.astral.sh/uv/) and run: uv sync"
+        exit 1
+    }
+    ```
+    Drop the `Join-Path` line entirely — `uv` is resolved on PATH, not inside `$repoRoot`.
+  - Line 77 (the `Write-Error` string referenced above is replaced by the new Get-Command block; line 77 in the *new* file no longer exists in the old form).
+  - Line 121 (invocation): `& $python @captureArgs` → `& uv run python @captureArgs`.
+  - **Implementer hygiene:** Read the full file before editing — if any other `& $python …` or `$VenvPython` references appear that the line cites above don't cover, swap them with the same `uv run python` pattern.
 
 **Historical sprint/epic docs — POLICY: leave content as-is, add grep exemption.**
 
@@ -481,7 +495,7 @@ returned SHA matches.
    - (Historical docs intentionally NOT in this list — see §3b policy.)
 11. **Live-source grep gate.** Run:
     ```sh
-    git grep -nE '\.venv/bin|\.venv\\Scripts|python3 -m venv' -- \
+    git grep -nE '\.venv/bin|\.venv\\Scripts|python3? -m venv' -- \
         ':!docs/sprint-*.md' ':!docs/epic-*.md' ':!docs/plan-tui-*.md' \
         ':!.repomix-output.xml' ':!.repomix-textual.xml'
     ```
