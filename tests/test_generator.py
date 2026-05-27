@@ -388,8 +388,9 @@ def test_data_flow_without_a_destination_emits_a_select_preview():
     assert any("no destination" in w for w in result.warnings)
 
 
-def test_header_truncates_a_long_warning_list():
-    # 45 column-less sources each raise one warning; the header caps the list at 40.
+def test_header_does_not_embed_warning_bullets():
+    # 45 column-less sources each raise one warning; warnings must be in result.warnings
+    # only — the header must NOT embed them in the SQL.
     sources = []
     for n in range(45):
         src = Component(
@@ -401,7 +402,12 @@ def test_header_truncates_a_long_warning_list():
     flow = DataFlow(name="DF", ref_id="DF", components=sources, paths=[])
     result = convert_package(Package(name="NoisyPkg", data_flows=[flow]))
     assert len(result.warnings) > 40
-    assert "more." in result.sql
+    assert "Conversion warnings (" not in result.sql, (
+        "warning bullets must not appear in the emitted SQL header"
+    )
+    assert "more." not in result.sql, (
+        "truncation marker 'more.' must not appear in the emitted SQL header"
+    )
 
 
 def test_dangling_path_is_warned_about():

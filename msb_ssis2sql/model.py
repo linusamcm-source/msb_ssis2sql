@@ -170,6 +170,36 @@ class Variable:
 
 
 @dataclass
+class Executable:
+    """A control-flow executable (data flow, exec package task, sequence container, etc.)."""
+
+    ref_id: str = ""
+    name: str = ""
+    kind: str = "other"  # data_flow | exec_sql | exec_package | sequence_container | other
+
+
+@dataclass
+class ExecutePackageTask:
+    """An ExecutePackageTask in the control flow."""
+
+    ref_id: str = ""
+    name: str = ""
+    package_name: str = ""
+    package_path: str = ""
+    precedence_predecessors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class PrecedenceConstraint:
+    """A DTS:PrecedenceConstraint between two executables."""
+
+    from_ref: str = ""
+    to_ref: str = ""
+    value: str = "Success"   # Success | Failure | Completion
+    eval_op: str = "Constraint"
+
+
+@dataclass
 class Package:
     """The whole parsed package."""
 
@@ -179,3 +209,6 @@ class Package:
     connection_managers: list[ConnectionManager] = field(default_factory=list)
     variables: list[Variable] = field(default_factory=list)
     exec_sql_tasks: list[str] = field(default_factory=list)    # raw SQL from control flow
+    executables: list[Executable] = field(default_factory=list)
+    execute_package_tasks: list[ExecutePackageTask] = field(default_factory=list)
+    precedence_constraints: list[PrecedenceConstraint] = field(default_factory=list)

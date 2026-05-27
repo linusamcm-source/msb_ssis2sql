@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="SubdirMain">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="EPT_A"
+                    DTS:ObjectName="Run Child A">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>child_a.dtsx</PackageName>
+          <PackagePath>child_a.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="EPT_B"
+                    DTS:ObjectName="Run Child B">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>child_b.dtsx</PackageName>
+          <PackagePath>child_b.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+  <DTS:PrecedenceConstraints>
+    <DTS:PrecedenceConstraint DTS:refId="Package.PrecedenceConstraints[A_to_B]"
+                              DTS:From="EPT_A"
+                              DTS:To="EPT_B"
+                              DTS:Value="0"
+                              DTS:EvalOp="2" />
+  </DTS:PrecedenceConstraints>
+</DTS:Executable>

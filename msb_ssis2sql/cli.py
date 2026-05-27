@@ -1,7 +1,9 @@
-"""Command-line interface: ``msb_ssis2sql convert``, ``msb_ssis2sql inspect``, and ``msb_ssis2sql convert-tree``."""
+"""Command-line interface: ``msb_ssis2sql convert``, ``msb_ssis2sql inspect``,
+``msb_ssis2sql convert-tree``, and ``msb_ssis2sql extract-agent-jobs``."""
 from __future__ import annotations
 
 import argparse
+import os
 import pathlib
 import sys
 
@@ -52,6 +54,28 @@ def build_parser() -> argparse.ArgumentParser:
     tree.add_argument("output", help="Directory the mirrored .sql tree is written into.")
     tree.add_argument("--procedure", metavar="NAME", help="Wrap each script in a stored procedure.")
     tree.add_argument("--no-header", action="store_true", help="Omit the generated header.")
+    tree.add_argument(
+        "--no-orchestrator", action="store_true",
+        help="Suppress main orchestrator proc emission; per-package procs still wrap.",
+    )
+
+    agent = sub.add_parser(
+        "extract-agent-jobs",
+        parents=[common],
+        help="Extract SQL Server Agent job definitions from msdb into YAML files.",
+    )
+    agent.add_argument(
+        "--out", metavar="DIR", default=None,
+        help="Output directory for YAML files (default: <output>/jobs/).",
+    )
+    agent.add_argument(
+        "--dsn", metavar="DSN", default=None,
+        help="ODBC DSN string (overrides MSDB_DSN env var).",
+    )
+    agent.add_argument(
+        "--filter", metavar="PATTERN", default=None,
+        help="Only extract jobs whose name contains PATTERN (case-insensitive).",
+    )
 
     return parser
 
@@ -107,11 +131,17 @@ def _cmd_inspect(args) -> int:
 
 def _cmd_convert_tree(args) -> int:
     options = ConvertOptions(
-        wrap_in_procedure=bool(args.procedure),
-        procedure_name=args.procedure or "usp_Migrated_Package",
+        wrap_in_procedure=False,
+        procedure_name="usp_Migrated_Package",
         include_header=not args.no_header,
     )
-    result = convert_tree(pathlib.Path(args.input), pathlib.Path(args.output), options)
+    no_orch = getattr(args, "no_orchestrator", False)
+    result = convert_tree(
+        pathlib.Path(args.input),
+        pathlib.Path(args.output),
+        options,
+        no_orchestrator=no_orch,
+    )
     for outcome in result.outcomes:
         if outcome.ok:
             print(f"converted {outcome.source} -> {outcome.destination}")
@@ -121,8 +151,20 @@ def _cmd_convert_tree(args) -> int:
     return 1 if result.failed > 0 else 0
 
 
+def _cmd_extract_agent_jobs(args) -> int:
+    from .agent.extractor import extract_jobs
+
+    dsn = getattr(args, "dsn", None) or os.environ.get("MSDB_DSN", "")
+    out = getattr(args, "out", None) or "jobs"
+    job_filter = getattr(args, "filter", None)
+
+    written = extract_jobs(dsn=dsn, out_dir=pathlib.Path(out), job_filter=job_filter)
+    for p in written:
+        print(f"wrote {p}")
+    return 0
+
+
 def _log_level(verbosity: int) -> str:
-    """Map ``-v`` occurrences to a loguru level: 0 quiet, 1 info, 2+ trace."""
     return {0: "WARNING", 1: "INFO"}.get(verbosity, "DEBUG")
 
 
@@ -137,12 +179,12 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_inspect(args)
         if args.command == "convert-tree":
             return _cmd_convert_tree(args)
+        if args.command == "extract-agent-jobs":
+            return _cmd_extract_agent_jobs(args)
     except Ssis2SqlError as exc:
         print(f"msb_ssis2sql: error: {exc}", file=sys.stderr)
         return 2
     except OSError as exc:
-        # parse_file() already converts input-file failures to ParseError; this
-        # catches a failed --output write, the one raw OSError that still escapes.
         print(f"msb_ssis2sql: error: {exc}", file=sys.stderr)
         return 2
     return 0

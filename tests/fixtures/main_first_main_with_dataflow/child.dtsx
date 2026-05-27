@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="Child">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT Child"
+                    DTS:refId="Package\DFT Child">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+            <component refId="src_child" name="Src Child"
+                       componentClassID="Microsoft.OLEDBSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT id FROM dbo.SrcChild</property>
+              </properties>
+              <outputs>
+                <output refId="src_child.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="src_child.Output.id" name="id" dataType="i4" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+            <component refId="dest_child" name="Dest Child"
+                       componentClassID="Microsoft.OLEDBDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">dbo.DestChild</property>
+              </properties>
+              <inputs>
+                <input refId="dest_child.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="dest_child.Input.id" cachedName="id" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+          </components>
+          <paths>
+            <path refId="pc1" name="src to dest" startId="src_child.Output" endId="dest_child.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

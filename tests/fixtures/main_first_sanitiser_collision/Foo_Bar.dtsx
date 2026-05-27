@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="Foo_Bar">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT Underscore"
+                    DTS:refId="Package\DFT Underscore">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+            <component refId="src_under" name="Src Under"
+                       componentClassID="Microsoft.OLEDBSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT id FROM dbo.SrcUnder</property>
+              </properties>
+              <outputs>
+                <output refId="src_under.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="src_under.Output.id" name="id" dataType="i4" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+            <component refId="dest_under" name="Dest Under"
+                       componentClassID="Microsoft.OLEDBDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">dbo.DestUnder</property>
+              </properties>
+              <inputs>
+                <input refId="dest_under.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="dest_under.Input.id" cachedName="id" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+          </components>
+          <paths>
+            <path refId="p1" name="src to dest" startId="src_under.Output" endId="dest_under.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

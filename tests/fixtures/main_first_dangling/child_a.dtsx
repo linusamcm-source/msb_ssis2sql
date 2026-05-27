@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="DanglingChildA">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT A"
+                    DTS:refId="Package\DFT A">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+            <component refId="src_d" name="Src D"
+                       componentClassID="Microsoft.OLEDBSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT id FROM dbo.SrcD</property>
+              </properties>
+              <outputs>
+                <output refId="src_d.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="src_d.Output.id" name="id" dataType="i4" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+            <component refId="dest_d" name="Dest D"
+                       componentClassID="Microsoft.OLEDBDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">dbo.DestD</property>
+              </properties>
+              <inputs>
+                <input refId="dest_d.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="dest_d.Input.id" cachedName="id" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+          </components>
+          <paths>
+            <path refId="p1" name="src to dest" startId="src_d.Output" endId="dest_d.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

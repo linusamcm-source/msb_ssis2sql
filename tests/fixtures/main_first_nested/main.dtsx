@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="NestedMain">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="EPT_NESTED"
+                    DTS:ObjectName="Run Nested Parent">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>nested_parent.dtsx</PackageName>
+          <PackagePath>nested_parent.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

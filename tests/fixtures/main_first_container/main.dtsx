@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="ContainerMain">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="STOCK:SEQUENCE"
+                    DTS:refId="SeqContainer"
+                    DTS:ObjectName="Group Things">
+      <DTS:Executables>
+        <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                        DTS:refId="EPT_INSIDE"
+                        DTS:ObjectName="Inside Container">
+          <DTS:ObjectData>
+            <ExecutePackageTask>
+              <PackageName>nested_child.dtsx</PackageName>
+              <PackagePath>nested_child.dtsx</PackagePath>
+            </ExecutePackageTask>
+          </DTS:ObjectData>
+        </DTS:Executable>
+      </DTS:Executables>
+    </DTS:Executable>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="EPT_AFTER"
+                    DTS:ObjectName="After Container">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>after_child.dtsx</PackageName>
+          <PackagePath>after_child.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+  <DTS:PrecedenceConstraints>
+    <DTS:PrecedenceConstraint DTS:refId="pc_container_after"
+                              DTS:From="SeqContainer"
+                              DTS:To="EPT_AFTER"
+                              DTS:Value="0"
+                              DTS:EvalOp="2" />
+  </DTS:PrecedenceConstraints>
+</DTS:Executable>
