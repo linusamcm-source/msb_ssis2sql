@@ -700,6 +700,8 @@ source = { editable = "." }
 dependencies = [
     { name = "loguru" },
     { name = "pre-commit" },
+    { name = "pyodbc" },
+    { name = "pyyaml" },
     { name = "textual" },
 ]
 
@@ -714,9 +716,7 @@ dev = [
 validation = [
     { name = "pandas" },
     { name = "pyarrow" },
-    { name = "pyodbc" },
     { name = "python-dotenv" },
-    { name = "pyyaml" },
     { name = "sqlglot" },
 ]
 web = [
@@ -727,6 +727,8 @@ web = [
 requires-dist = [
     { name = "loguru", specifier = ">=0.7" },
     { name = "pre-commit", specifier = ">=4.6.0" },
+    { name = "pyodbc", specifier = ">=5.3" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "textual", specifier = ">=8.2" },
 ]
 
@@ -741,9 +743,7 @@ dev = [
 validation = [
     { name = "pandas", specifier = ">=3.0" },
     { name = "pyarrow", specifier = ">=24.0" },
-    { name = "pyodbc", specifier = ">=5.3" },
     { name = "python-dotenv", specifier = ">=1.0" },
-    { name = "pyyaml", specifier = ">=6.0" },
     { name = "sqlglot", specifier = ">=25.0" },
 ]
 web = [{ name = "textual-serve", specifier = ">=1.1" }]

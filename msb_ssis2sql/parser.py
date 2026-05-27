@@ -29,9 +29,12 @@ from .model import (
     Connection,
     ConnectionManager,
     DataFlow,
+    Executable,
+    ExecutePackageTask,
     Package,
     Path,
     Port,
+    PrecedenceConstraint,
     Variable,
 )
 
@@ -132,6 +135,7 @@ def parse_root(root: ET.Element) -> Package:
     _parse_connection_managers(root, package)
     _parse_variables(root, package)
     _collect_executables(root, package)
+    _collect_precedence_constraints(root, package)
     logger.info(
         "parsed package {!r}: {} data flow(s), {} connection manager(s), {} variable(s)",
         package.name,
@@ -209,7 +213,22 @@ def _parse_variable(elem: ET.Element) -> Variable:
 # --------------------------------------------------------------------------- #
 # control flow
 # --------------------------------------------------------------------------- #
-def _collect_executables(parent: ET.Element, package: Package) -> None:
+def _executable_kind(ex: ET.Element) -> str:
+    exec_type = (_attr(ex, "ExecutableType", "") or "").lower()
+    if "pipeline" in exec_type or "dataflow" in exec_type:
+        return "data_flow"
+    if "executepackagetask" in exec_type or "executesqlpackage" in exec_type:
+        return "exec_package"
+    if "executesqltask" in exec_type:
+        return "exec_sql"
+    if "sequence" in exec_type or "stock:sequence" in exec_type:
+        return "sequence_container"
+    if "foreachloop" in exec_type or "forloop" in exec_type:
+        return "sequence_container"
+    return "other"
+
+
+def _collect_executables(parent: ET.Element, package: Package, _top_level: bool = True) -> None:
     """Walk the control flow, picking out data flows and Execute SQL tasks.
 
     Modern packages nest executables inside a ``<DTS:Executables>`` wrapper;
@@ -218,15 +237,76 @@ def _collect_executables(parent: ET.Element, package: Package) -> None:
     wrapper = _child(parent, "Executables")
     container = wrapper if wrapper is not None else parent
     for ex in _children(container, "Executable"):
+        ref_id = _attr(ex, "refId", "") or _attr(ex, "DTSID", "") or _prop(ex, "DTSID", "") or ""
+        name = _prop(ex, "ObjectName", "") or ""
+        kind = _executable_kind(ex)
         obj_data = _child(ex, "ObjectData")
         pipeline = _child(obj_data, "pipeline") if obj_data is not None else None
+
+        # Only add top-level executables (direct children of the root package).
+        if _top_level:
+            package.executables.append(Executable(ref_id=ref_id, name=name, kind=kind))
+
         if pipeline is not None:
             package.data_flows.append(_parse_data_flow(ex, pipeline))
+        elif kind == "exec_package":
+            ept = _parse_execute_package_task(ex, ref_id, name, obj_data)
+            if ept is not None:
+                package.execute_package_tasks.append(ept)
         else:
             sql = _extract_exec_sql(obj_data)
             if sql:
                 package.exec_sql_tasks.append(sql)
-        _collect_executables(ex, package)          # sequence containers / loops nest
+        # Recurse into sequence containers (not top-level for sub-children).
+        _collect_executables(ex, package, _top_level=False)
+
+
+def _parse_execute_package_task(
+    ex: ET.Element,
+    ref_id: str,
+    name: str,
+    obj_data: ET.Element | None,
+) -> ExecutePackageTask | None:
+    if obj_data is None:
+        return None
+    # Inner element is namespaceless: <ExecutePackageTask>
+    ept_elem = _child(obj_data, "ExecutePackageTask")
+    if ept_elem is None:
+        return None
+    pkg_name = ""
+    pkg_path = ""
+    for child in ept_elem:
+        local = _local(child.tag)
+        if local == "PackageName":
+            pkg_name = (child.text or "").strip()
+        elif local == "PackagePath":
+            pkg_path = (child.text or "").strip()
+        elif local == "PackageNameFromProjectReference":
+            pkg_name = pkg_name or (child.text or "").strip()
+    return ExecutePackageTask(
+        ref_id=ref_id,
+        name=name,
+        package_name=pkg_name,
+        package_path=pkg_path or pkg_name,
+        precedence_predecessors=[],
+    )
+
+
+def _collect_precedence_constraints(root: ET.Element, package: Package) -> None:
+    """Parse ``<DTS:PrecedenceConstraints>`` from the package root (not nested)."""
+    pc_wrapper = _child(root, "PrecedenceConstraints")
+    if pc_wrapper is None:
+        return
+    _value_map = {"0": "Success", "1": "Failure", "2": "Completion"}
+    for pc in _children(pc_wrapper, "PrecedenceConstraint"):
+        from_ref = _attr(pc, "From", "") or ""
+        to_ref = _attr(pc, "To", "") or ""
+        raw_value = _attr(pc, "Value", "0") or "0"
+        value = _value_map.get(raw_value, "Success")
+        eval_op = _attr(pc, "EvalOp", "Constraint") or "Constraint"
+        package.precedence_constraints.append(
+            PrecedenceConstraint(from_ref=from_ref, to_ref=to_ref, value=value, eval_op=eval_op)
+        )
 
 
 def _extract_exec_sql(obj_data: ET.Element | None) -> str:

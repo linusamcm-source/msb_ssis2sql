@@ -83,6 +83,11 @@ validate-cov:
 validate-static:
     uv run pytest validation/test_static.py
 
+# Spin up a containerised SQL Server with a seeded msdb and run the agent
+# extractor against it. Manual pre-merge smoke; not part of `just test`.
+extract-agent-jobs-smoke:
+    uv run pytest validation/ -m agent_smoke
+
 # Remove the virtual environment, lockfile-tracked caches, build artefacts.
 clean:
     rm -rf .venv .pytest_cache .ruff_cache .mypy_cache build dist *.egg-info

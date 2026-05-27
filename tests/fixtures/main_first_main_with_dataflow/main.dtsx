@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="MainWithDataflow">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT Main Load"
+                    DTS:refId="Package\DFT Main Load">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+            <component refId="src_main" name="Src Main"
+                       componentClassID="Microsoft.OLEDBSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT id FROM dbo.SrcMain</property>
+              </properties>
+              <outputs>
+                <output refId="src_main.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="src_main.Output.id" name="id" dataType="i4" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+            <component refId="drv_main" name="Derived Main"
+                       componentClassID="Microsoft.DerivedColumn">
+              <inputs>
+                <input refId="drv_main.Input" name="Derived Column Input">
+                  <inputColumns>
+                    <inputColumn refId="drv_main.Input.id" cachedName="id" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="drv_main.Output" name="Derived Column Output">
+                  <outputColumns>
+                    <outputColumn refId="drv_main.Output.id" name="id" dataType="i4" />
+                    <outputColumn refId="drv_main.Output.flagged" name="flagged" dataType="i4" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+            <component refId="dest_main" name="Dest Main"
+                       componentClassID="Microsoft.OLEDBDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">dbo.DestMain</property>
+              </properties>
+              <inputs>
+                <input refId="dest_main.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="dest_main.Input.id" cachedName="id" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+          </components>
+          <paths>
+            <path refId="pm1" name="src to derived" startId="src_main.Output" endId="drv_main.Input" />
+            <path refId="pm2" name="derived to dest" startId="drv_main.Output" endId="dest_main.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="Package\EPT_CHILD"
+                    DTS:ObjectName="Run Child">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>child.dtsx</PackageName>
+          <PackagePath>child.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

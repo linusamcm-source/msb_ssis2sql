@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="ObjectCollisionMain">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="EPT_X1"
+                    DTS:ObjectName="Run X1">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>x1.dtsx</PackageName>
+          <PackagePath>x1.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="EPT_X2"
+                    DTS:ObjectName="Run X2">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>x2.dtsx</PackageName>
+          <PackagePath>x2.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>
