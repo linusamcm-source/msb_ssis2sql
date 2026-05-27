@@ -45,7 +45,7 @@ import pytest
 
 # This import raises ModuleNotFoundError until ledger.py exists.
 # That is the expected RED state — do not wrap in try/except.
-from validation.ledger import ColumnPolicy, DestLedger, KnownDivergence, LedgerError, parse_ledger
+from validation.ledger import LedgerError, parse_ledger
 
 
 # ---------------------------------------------------------------------------

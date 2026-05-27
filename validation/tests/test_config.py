@@ -19,14 +19,12 @@ Contract under test (sprint plan, Story 0):
 from __future__ import annotations
 
 import dataclasses
-import os
-from typing import Any
 
 import pytest
 
 # The import will raise ModuleNotFoundError until config.py exists.
 # That is the expected RED state — do not add a try/except here.
-from validation.config import ValidationConfig, get_connection_string, load_config
+from validation.config import get_connection_string, load_config
 
 
 # ---------------------------------------------------------------------------

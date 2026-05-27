@@ -56,3 +56,7 @@ omit = ["validation/tests/*", "validation/test_*.py", "validation/conftest.py"]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:"]
+
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*", "pyodbc", "pyodbc.*", "yaml", "yaml.*"]
+ignore_missing_imports = true

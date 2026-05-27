@@ -160,6 +160,7 @@ class Translator:
     @staticmethod
     def _literal(node: ast.Literal) -> str:
         if node.kind == "str":
+            assert isinstance(node.value, str)
             return sql_string_literal(node.value)
         if node.kind == "bool":
             return "1" if node.value else "0"
@@ -216,6 +217,7 @@ class Translator:
     def _datepart(self, node: ast.Node) -> str:
         """Resolve an SSIS datepart string argument to a T-SQL datepart keyword."""
         if isinstance(node, ast.Literal) and node.kind == "str":
+            assert isinstance(node.value, str)
             key = node.value.strip().lower()
             if key in _DATEPART:
                 return _DATEPART[key]

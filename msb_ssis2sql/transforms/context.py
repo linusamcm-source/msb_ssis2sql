@@ -118,7 +118,11 @@ class BuildContext:
         body: str,
         depends_on: tuple[Relation, ...],
     ) -> Relation:
-        name = self.unique_name(name_hint or component.name or output_port.name)
+        hint = name_hint or component.name
+        if not hint:
+            assert output_port is not None
+            hint = output_port.name
+        name = self.unique_name(hint)
         exposed = [
             RelColumn(
                 name=col.name,

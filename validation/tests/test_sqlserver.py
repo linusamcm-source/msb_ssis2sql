@@ -56,7 +56,7 @@ Fixture contract (engineer must match these names in validation/conftest.py):
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 

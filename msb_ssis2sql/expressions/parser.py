@@ -101,6 +101,7 @@ class Parser:
     def _unary(self) -> ast.Node:
         if self.cur.kind == "OP" and self.cur.value in _UNARY_OPS:
             op = self._advance().value
+            assert isinstance(op, str)
             return ast.Unary(op, self._unary())
         return self._primary()
 
@@ -109,6 +110,7 @@ class Parser:
 
         if tok.kind == "NUM":
             self._advance()
+            assert isinstance(tok.value, str)
             kind = "real" if ("." in tok.value or "e" in tok.value.lower()) else "int"
             return ast.Literal(tok.value, kind)
 
@@ -124,21 +126,24 @@ class Parser:
             self._advance()
             if self.cur.kind == "LPAREN":          # typed null: NULL(DT_WSTR, 50)
                 self._advance()
-                code, args = self._type_spec()
+                code, type_args = self._type_spec()
                 self._expect("RPAREN")
-                return ast.TypedNull(code, args)
+                return ast.TypedNull(code, type_args)
             return ast.Literal(None, "null")
 
         if tok.kind == "COL":
             self._advance()
+            assert isinstance(tok.value, str)
             return ast.ColumnRef(tok.value)
 
         if tok.kind == "VAR":
             self._advance()
+            assert isinstance(tok.value, tuple)
             ns, name = tok.value
             return ast.VariableRef(ns, name)
 
         if tok.kind == "IDENT":
+            assert isinstance(tok.value, str)
             name = tok.value
             self._advance()
             if self.cur.kind == "LPAREN":          # function call
@@ -155,12 +160,12 @@ class Parser:
 
         if tok.kind == "LPAREN":
             nxt = self._peek(1)
-            if nxt.kind == "IDENT" and nxt.value.upper().startswith("DT_"):
+            if nxt.kind == "IDENT" and isinstance(nxt.value, str) and nxt.value.upper().startswith("DT_"):
                 self._advance()                    # consume '('
-                code, args = self._type_spec()
+                code, type_args = self._type_spec()
                 self._expect("RPAREN")
                 operand = self._unary()            # cast binds at unary precedence
-                return ast.Cast(code, args, operand)
+                return ast.Cast(code, type_args, operand)
             self._advance()                        # consume '(' - grouping
             inner = self._expression()
             self._expect("RPAREN")
@@ -173,10 +178,12 @@ class Parser:
     def _type_spec(self) -> tuple[str, list[int]]:
         """Parse ``DT_CODE`` followed by optional ``, N`` length/precision args."""
         code = self._expect("IDENT").value
+        assert isinstance(code, str)
         args: list[int] = []
         while self.cur.kind == "COMMA":
             self._advance()
             num = self._expect("NUM").value
+            assert isinstance(num, str)
             args.append(int(float(num)))
         return code, args
 

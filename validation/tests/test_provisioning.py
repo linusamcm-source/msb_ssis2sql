@@ -66,11 +66,9 @@ Fixture contract (already implemented in validation/conftest.py):
 """
 from __future__ import annotations
 
-import hashlib
 import shutil
 from pathlib import Path
 
-import pytest
 
 # This import raises ModuleNotFoundError until provisioning.py exists.
 # That is the expected RED state — do not wrap in try/except.
