@@ -1,7 +1,19 @@
 """Small dependency-free helpers shared across layers."""
 from __future__ import annotations
 
+import pathlib
 from urllib.parse import unquote
+
+
+def _posix(p: pathlib.Path | str) -> str:
+    """Normalise a path-like value to POSIX separators (``/``).
+
+    Shared by the manifest writer (``msb_ssis2sql.batch``) and the
+    SSIS command parser (``msb_ssis2sql.agent.command_parser``) so the two
+    sides of the agent-step rewriting interchange compare apples to
+    apples (D-13).
+    """
+    return str(p).replace("\\", "/")
 
 
 def decode_package_name(name: str) -> str:

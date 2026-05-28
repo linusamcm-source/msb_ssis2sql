@@ -1,0 +1,21 @@
+{
+  "entries": [
+    {
+      "dtsx": "fact/nightly_load.dtsx",
+      "out_sql": "fact/nightly_load.sql",
+      "proc": "usp_fact_nightly_load"
+    },
+    {
+      "dtsx": "marts/finance_daily.dtsx",
+      "out_sql": "marts/finance_daily.sql",
+      "proc": "usp_marts_finance_daily"
+    },
+    {
+      "dtsx": "staging/sales_extract.dtsx",
+      "out_sql": "staging/sales_extract.sql",
+      "proc": "usp_staging_sales_extract"
+    }
+  ],
+  "input_root": "/srv/etl/src",
+  "version": 1
+}

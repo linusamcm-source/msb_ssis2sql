@@ -1,0 +1,44 @@
+description: nightly load of fact and dimension tables
+enabled: true
+job_name: NightlyLoad
+notify_email_operator: ops-team
+notify_level_email: 2
+owner_login_name: svc_agent_runner
+schedules:
+- active_end_date: 99991231
+  active_end_time: 235959
+  active_start_date: 20260101
+  active_start_time: 20000
+  enabled: true
+  freq_interval: 1
+  freq_recurrence_factor: 0
+  freq_subday_interval: 0
+  freq_subday_type: 1
+  freq_type: 4
+  name: nightly-2am
+steps:
+- original_subsystem: SSIS
+  original_command: DTExec /FILE "C:/etl/fact/nightly_load.dtsx" /CHECKPOINTING OFF
+  dtsx_source: fact/nightly_load.dtsx
+  step_id: 1
+  step_name: run-load
+  subsystem: TSQL
+  command: EXEC usp_fact_nightly_load;
+  database_name: SalesDW
+  on_success_action: 1
+  on_success_step_id: 0
+  on_fail_action: 2
+  on_fail_step_id: 0
+  retry_attempts: 0
+  retry_interval: 0
+- command: EXEC dbo.usp_post_load_verify
+  database_name: SalesDW
+  on_fail_action: 2
+  on_fail_step_id: 0
+  on_success_action: 1
+  on_success_step_id: 0
+  retry_attempts: 0
+  retry_interval: 0
+  step_id: 2
+  step_name: verify
+  subsystem: TSQL

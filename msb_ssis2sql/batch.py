@@ -1,6 +1,7 @@
 """Recursively convert a directory tree of .dtsx packages into mirrored .sql files."""
 from __future__ import annotations
 
+import json
 import re
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -13,7 +14,7 @@ from .generator import ConvertOptions, convert_file, convert_package
 from .model import Package
 from .observability import logged, logger
 from .parser import parse_file
-from .util import decode_package_name
+from .util import _posix, decode_package_name
 
 
 def _decoded_stem(path: Path) -> str:
@@ -278,6 +279,29 @@ def convert_tree(
     sorted_warnings = sorted(batch_warnings)
     log_path.write_text(
         "\n".join(f"{src}: {w}" for src, w in sorted_warnings) + ("\n" if sorted_warnings else ""),
+        encoding="utf-8",
+    )
+
+    # Write _proc_manifest.json — shared interchange with extract-agent-jobs (T-1).
+    # Always emitted, even when zero packages converted (entries: []).
+    manifest = {
+        "version": 1,
+        "input_root": str(input_root.resolve()),
+        "entries": sorted(
+            [
+                {
+                    "dtsx": _posix(outcome.source.relative_to(input_root)),
+                    "proc": outcome.procedure_name,
+                    "out_sql": _posix(outcome.destination.relative_to(output_root)),
+                }
+                for outcome in result.outcomes
+                if outcome.ok and outcome.procedure_name
+            ],
+            key=lambda e: e["dtsx"],
+        ),
+    }
+    (output_root / "_proc_manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
 
