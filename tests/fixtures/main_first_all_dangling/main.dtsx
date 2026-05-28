@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="AllDanglingMain">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="Package\EPT_A"
+                    DTS:ObjectName="Run Nonexistent A">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>nonexistent_a.dtsx</PackageName>
+          <PackagePath>nonexistent_a.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="Package\EPT_B"
+                    DTS:ObjectName="Run Nonexistent B">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>nonexistent_b.dtsx</PackageName>
+          <PackagePath>nonexistent_b.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

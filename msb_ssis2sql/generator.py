@@ -27,6 +27,7 @@ class ConvertOptions:
     wrap_in_procedure: bool = False
     procedure_name: str = "usp_Migrated_Package"
     include_header: bool = True
+    orchestration_body: list[str] | None = None
 
 
 @dataclass
@@ -63,7 +64,9 @@ def convert_package(package: Package, options: ConvertOptions | None = None) -> 
     warnings: list[str] = []
     referenced_vars: set[tuple[str, str]] = set()
 
-    if not package.data_flows:
+    # D-5: suppress the no-DFT warning iff orchestration_body is non-empty
+    # (the orch-only collapse explicitly replaces the empty body with EXECs).
+    if not package.data_flows and not options.orchestration_body:
         no_flows = "package has no Data Flow Task - there are no transformations to convert"
         warnings.append(no_flows)
         logger.warning(no_flows)
@@ -218,7 +221,7 @@ def _assemble(
 ) -> str:
     blocks: list[str] = []
     if options.include_header:
-        blocks.append(_header(package))
+        blocks.append(_header(package, options))
 
     inner_parts: list[str] = []
     declarations = _declarations(package, referenced_vars)
@@ -228,6 +231,9 @@ def _assemble(
     if exec_sql:
         inner_parts.append(exec_sql)
     inner_parts.extend(s for s in sections if s.strip())
+    orchestration = _orchestration_section(package, options)
+    if orchestration:
+        inner_parts.append(orchestration)
     inner = "\n\n\n".join(inner_parts)
 
     if options.wrap_in_procedure:
@@ -235,6 +241,19 @@ def _assemble(
     blocks.append(inner)
 
     return "\n\n".join(b for b in blocks if b.strip()).rstrip() + "\n"
+
+
+def _orchestration_section(package: Package, options: ConvertOptions) -> str:
+    """Render the EXEC body for the orch-only collapse path (D-1, D-4, D-5).
+
+    Fires only when ``options.orchestration_body`` is non-empty AND the package
+    has zero data flows. Each entry is rendered verbatim on its own line; the
+    surrounding ``_wrap_procedure`` indent applies uniformly.
+    """
+    body = options.orchestration_body
+    if not body or package.data_flows:
+        return ""
+    return "\n".join(body)
 
 
 def _declarations(package: Package, referenced_vars: set[tuple[str, str]]) -> str:
@@ -286,12 +305,16 @@ def _wrap_procedure(body: str, options: ConvertOptions) -> str:
     )
 
 
-def _header(package: Package) -> str:
+def _header(package: Package, options: ConvertOptions | None = None) -> str:
     lines = ["/" + "*" * 74]
     lines.append(f" * Source package : {package.name}")
     if package.source_path:
         lines.append(f" * Source file    : {package.source_path}")
-    lines.append(f" * Data flow tasks : {len(package.data_flows)}")
+    collapse_body = options.orchestration_body if options is not None else None
+    if collapse_body and not package.data_flows:
+        lines.append(f" * Orchestration : {len(collapse_body)} child EXECs")
+    else:
+        lines.append(f" * Data flow tasks : {len(package.data_flows)}")
     lines.append(" " + "*" * 74 + "/")
     return "\n".join(lines)
 

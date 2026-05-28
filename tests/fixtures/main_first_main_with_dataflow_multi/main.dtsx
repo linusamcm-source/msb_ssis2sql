@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="MainWithDataflowMulti">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT Main Load"
+                    DTS:refId="Package\DFT Main Load">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+            <component refId="src_main" name="Src Main"
+                       componentClassID="Microsoft.OLEDBSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT id FROM dbo.SrcMain</property>
+              </properties>
+              <outputs>
+                <output refId="src_main.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="src_main.Output.id" name="id" dataType="i4" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+            <component refId="dest_main" name="Dest Main"
+                       componentClassID="Microsoft.OLEDBDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">dbo.DestMain</property>
+              </properties>
+              <inputs>
+                <input refId="dest_main.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="dest_main.Input.id" cachedName="id" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+          </components>
+          <paths>
+            <path refId="pm1" name="src to dest" startId="src_main.Output" endId="dest_main.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="Package\EPT_A"
+                    DTS:ObjectName="Run Child A">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>childa.dtsx</PackageName>
+          <PackagePath>childa.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="Package\EPT_B"
+                    DTS:ObjectName="Run Child B">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>childb.dtsx</PackageName>
+          <PackagePath>childb.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+  <DTS:PrecedenceConstraints>
+    <DTS:PrecedenceConstraint DTS:refId="Package.PrecedenceConstraints[A_to_B]"
+                              DTS:From="Package\EPT_A"
+                              DTS:To="Package\EPT_B"
+                              DTS:Value="0"
+                              DTS:EvalOp="2" />
+  </DTS:PrecedenceConstraints>
+</DTS:Executable>
