@@ -24,3 +24,7 @@ examples/*
 
 # scheduled-task harness lock
 .claude/scheduled_tasks.lock
+
+# offline wheel bundle — already-tracked wheels stay in repo;
+# this only blocks future ad-hoc additions from local refreshes
+wheels/
