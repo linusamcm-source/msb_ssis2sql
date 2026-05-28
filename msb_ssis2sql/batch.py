@@ -12,6 +12,12 @@ from .errors import GraphError
 from .generator import ConversionResult, ConvertOptions, convert_file
 from .observability import logged, logger
 from .parser import parse_file
+from .util import decode_package_name
+
+
+def _decoded_stem(path: Path) -> str:
+    """Disk-file stem with %xx percent-escapes decoded — matches EPT refs."""
+    return decode_package_name(path.stem)
 
 # Visual Studio build / intermediate dirs — not source packages.
 _SKIP_DIRS = frozenset({"bin", "obj"})
@@ -85,9 +91,10 @@ def convert_tree(
     for dir_path, dir_files in sorted(by_dir.items()):
         rel_dir = dir_path.relative_to(input_root)
 
-        # Resolve proc-name collisions per directory.
-        stems = [f.stem for f in dir_files]
-        collision_map = resolve_collisions(stems)  # {stem: resolved_sanitised}
+        # Resolve proc-name collisions per directory. Decode stems first so
+        # '%20'-encoded disk names share a collision namespace with EPT refs.
+        stems = [_decoded_stem(f) for f in dir_files]
+        collision_map = resolve_collisions(stems)  # {decoded_stem: resolved_sanitised}
 
         # Identify main.dtsx (case-insensitive).
         main_file: Path | None = None
@@ -121,14 +128,16 @@ def convert_tree(
             dst.parent.mkdir(parents=True, exist_ok=True)
 
             # Build the sanitised proc-name, honouring the collision suffix.
-            sanitised_stem = collision_map.get(src.stem, sanitise(src.stem))
+            # Decode the disk stem so '%20' on disk matches EPT.package_name refs.
+            canonical_stem = _decoded_stem(src)
+            sanitised_stem = collision_map.get(canonical_stem, sanitise(canonical_stem))
             rel_dir_str = str(rel_dir)
             if rel_dir_str in ("", "."):
                 proc_name = f"usp_{sanitised_stem}"
             else:
                 dir_part = sanitise(rel_dir_str.replace("/", "_").replace("\\", "_"))
                 proc_name = f"usp_{dir_part}_{sanitised_stem}" if dir_part else f"usp_{sanitised_stem}"
-            proc_name_by_stem[src.stem] = proc_name
+            proc_name_by_stem[canonical_stem] = proc_name
 
             wrap_opts = ConvertOptions(
                 wrap_in_procedure=True,
@@ -257,7 +266,9 @@ def _emit_orchestrator(
             ordered_epts = epts  # declaration order fallback
 
         # Warn about dangling refs (EPT package names not in dir_files).
-        dir_file_names = {f.name.lower() for f in dir_files}
+        # Compare against decoded disk names so '%20'-encoded files match
+        # decoded EPT refs (parser already decodes the in-XML side).
+        dir_file_names = {decode_package_name(f.name).lower() for f in dir_files}
         for ept in ordered_epts:
             pkg_name = ept.package_name
             if not pkg_name:
@@ -281,12 +292,15 @@ def _emit_orchestrator(
                 continue
             if ".." in pkg_name or pkg_name.startswith("/"):
                 continue
-            # Derive stem from package_name.
+            # Derive stem from package_name (already decoded by parser).
             stem = Path(pkg_name).stem
             if stem in proc_name_by_stem:
                 exec_lines.append(f"    EXEC {proc_name_by_stem[stem]};")
 
-        main_proc_name = proc_name_by_stem.get(main_file.stem, resolve_procedure_name(rel_dir, main_file.stem))
+        main_proc_name = proc_name_by_stem.get(
+            _decoded_stem(main_file),
+            resolve_procedure_name(rel_dir, _decoded_stem(main_file)),
+        )
         orch_proc_name = f"{main_proc_name}_orchestrator"
         orch_sql = _render_orchestrator_proc(orch_proc_name, exec_lines)
 
@@ -309,9 +323,9 @@ def _emit_orchestrator(
 
         # EXECs sorted alphabetically by proc-name.
         child_procs = sorted(
-            proc_name_by_stem[f.stem]
+            proc_name_by_stem[_decoded_stem(f)]
             for f in dir_files
-            if f.stem in proc_name_by_stem
+            if _decoded_stem(f) in proc_name_by_stem
         )
         exec_lines = [f"    EXEC {p};" for p in child_procs]
         orch_sql = _render_orchestrator_proc(synth_proc_name, exec_lines)

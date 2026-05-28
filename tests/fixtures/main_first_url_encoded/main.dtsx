@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="MainUrlEncoded">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="Package\EPT_A"
+                    DTS:ObjectName="Run Child A">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>Child%20A.dtsx</PackageName>
+          <PackagePath>Child%20A.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="Package\EPT_B"
+                    DTS:ObjectName="Run Child B">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>Child%20B.dtsx</PackageName>
+          <PackagePath>Child%20B.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>
