@@ -60,7 +60,7 @@ class ConditionalSplitTranspiler(Transpiler):
             for warning in warnings:
                 ctx.warn(f"conditional split case {out.name!r}: {warning}")
 
-            where = " AND ".join([*negations, f"({predicate})"])
+            where: str | None = " AND ".join([*negations, f"({predicate})"])
             ctx.make_relation(
                 component, out, passthrough, from_sql,
                 where=where, name_hint=f"{component.name}_{out.name}",

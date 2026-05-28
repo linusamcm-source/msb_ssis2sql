@@ -26,7 +26,9 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
-    from loguru import Logger
+    import logging
+    from loguru import Logger, Message, Writable
+    from typing import TextIO
 
 # Stay silent until the host application opts in (loguru's library convention).
 logger.disable("msb_ssis2sql")
@@ -42,7 +44,7 @@ _FORMAT = (
 
 def configure_logging(
     level: str = "INFO",
-    sink: object | None = None,
+    sink: TextIO | Writable | Callable[[Message], None] | logging.Handler | None = None,
     *,
     diagnose: bool = False,
     backtrace: bool = True,

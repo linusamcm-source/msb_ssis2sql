@@ -12,7 +12,7 @@ from ..errors import ExpressionError
 @dataclass
 class Token:
     kind: str
-    value: object
+    value: str | bool | None | tuple[str, str]
     pos: int
 
 

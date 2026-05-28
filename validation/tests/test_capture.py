@@ -123,7 +123,7 @@ import json
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -133,7 +133,6 @@ from validation.capture.capture import (
     build_parser,
     capture,
     export_parquet,
-    main,
 )
 
 if TYPE_CHECKING:

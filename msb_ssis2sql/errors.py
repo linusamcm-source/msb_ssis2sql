@@ -16,3 +16,7 @@ class ExpressionError(Ssis2SqlError):
 
 class GraphError(Ssis2SqlError):
     """The data-flow graph is malformed - a cycle, a dangling path, or an orphan."""
+
+
+class AgentExtractError(Ssis2SqlError):
+    """The SQL Server Agent job extraction failed: connection, permission, or query."""

@@ -41,6 +41,45 @@ once so `import pyodbc` finds `libodbc.dylib` at runtime. Users who don't
 need differential validation can skip the group entirely with
 `uv sync --no-group validation`.
 
+### Offline install (Windows, air-gapped)
+
+The `wheels/` directory ships pre-downloaded binary wheels for Python 3.14
+on `win_amd64`, covering runtime, dev, web, and validation groups. On a host
+without internet access:
+
+```bat
+REM From cmd.exe in the repo root, with Python 3.14 (x64) on PATH:
+run.bat
+REM choose option 21: install-offline
+```
+
+Equivalent manual invocation:
+
+```bat
+python -m venv .venv
+.venv\Scripts\python.exe -m ensurepip --upgrade
+.venv\Scripts\python.exe -m pip install --no-index --find-links wheels\ ^
+    --upgrade pip setuptools wheel
+.venv\Scripts\python.exe -m pip install --no-index --find-links wheels\ ^
+    --requirement wheels\requirements.txt
+.venv\Scripts\python.exe -m pip install --no-index --find-links wheels\ ^
+    --no-build-isolation -e .
+```
+
+To refresh the bundle (on an online box) after dependency changes:
+
+```sh
+uv lock
+uv export --no-hashes --all-groups --format requirements-txt 2>/dev/null \
+    | grep -v '^-e' > wheels/requirements.txt
+python -m pip download --dest wheels/ --requirement wheels/requirements.txt \
+    --platform win_amd64 --python-version 3.14 \
+    --implementation cp --only-binary=:all:
+python -m pip download --dest wheels/ --platform win_amd64 \
+    --python-version 3.14 --implementation cp --only-binary=:all: \
+    setuptools wheel pip
+```
+
 ## Usage
 
 ### Command line

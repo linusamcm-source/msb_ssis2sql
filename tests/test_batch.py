@@ -114,7 +114,6 @@ def test_convert_tree_isolates_failure_and_continues(tmp_path):
     result = convert_tree(input_dir, output_dir)
 
     failed_outcomes = [o for o in result.outcomes if not o.ok]
-    ok_outcomes = [o for o in result.outcomes if o.ok]
 
     assert result.failed >= 1, "malformed package must be recorded as failed"
     assert result.converted >= 1, "valid sibling must still be converted"

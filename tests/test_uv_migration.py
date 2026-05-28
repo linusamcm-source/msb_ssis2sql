@@ -48,14 +48,25 @@ def test_pyproject_uses_dependency_groups() -> None:
     validation = groups["validation"]
     assert isinstance(validation, list)
     joined = "\n".join(validation)
-    assert "pyodbc>=5.3" in joined, (
-        f"validation group must pin pyodbc>=5.3; got: {validation}"
+    # pyodbc and pyyaml moved to [project].dependencies (C-2) — must not be in validation.
+    assert "pyodbc" not in joined, (
+        f"pyodbc was moved to core deps; validation group must not pin it: {validation}"
     )
     assert "pandas>=3.0" in joined, (
         f"validation group must pin pandas>=3.0; got: {validation}"
     )
     assert "pyarrow>=24.0" in joined, (
         f"validation group must pin pyarrow>=24.0; got: {validation}"
+    )
+
+    # pyodbc and pyyaml must be in core [project].dependencies.
+    core_deps = data.get("project", {}).get("dependencies", [])
+    core_joined = "\n".join(core_deps)
+    assert "pyodbc>=5.3" in core_joined, (
+        f"pyodbc>=5.3 must be in [project].dependencies; got: {core_deps}"
+    )
+    assert "pyyaml>=6.0" in core_joined, (
+        f"pyyaml>=6.0 must be in [project].dependencies; got: {core_deps}"
     )
 
 

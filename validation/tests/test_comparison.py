@@ -41,11 +41,10 @@ import datetime
 from decimal import Decimal
 
 import pandas as pd
-import pytest
 
 # These imports raise ModuleNotFoundError until the source files exist.
 # That is the expected RED state — do not wrap in try/except.
-from validation.comparison import ComparisonResult, compare
+from validation.comparison import compare
 from validation.ledger import ColumnPolicy, DestLedger, KnownDivergence
 from validation.reporting import render_result
 

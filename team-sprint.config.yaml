@@ -1,4 +1,4 @@
-plan_path: docs/sprint-uv-migration.md
+plan_path: docs/sprint-main-procs-orchestrator.md
 target_branch: dev
 
 coverage_threshold: 80

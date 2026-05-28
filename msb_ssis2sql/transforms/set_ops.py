@@ -88,7 +88,7 @@ class MergeJoinTranspiler(Transpiler):
             ctx.warn(f"merge join {component.name!r} needs two connected inputs - skipped")
             return
 
-        join_type = self._JOIN_TYPES.get(to_int(component.property("JoinType"), 2), "INNER JOIN")
+        join_type = self._JOIN_TYPES.get(to_int(component.property("JoinType"), 2) or 2, "INNER JOIN")
         ctx.warn(
             f"merge join {component.name!r}: emitted as {join_type} - verify the join type "
             f"and join keys against the SSIS component"

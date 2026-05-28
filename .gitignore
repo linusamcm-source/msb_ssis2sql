@@ -21,3 +21,6 @@ examples/*
 
 # team-sprint artifacts
 .team-sprint/
+
+# scheduled-task harness lock
+.claude/scheduled_tasks.lock

@@ -19,7 +19,7 @@ pre-load the real ``.env`` values into ``os.environ`` once at session start
 """
 from __future__ import annotations
 
-import os
+from collections.abc import Generator
 from pathlib import Path
 from unittest.mock import patch
 
@@ -53,7 +53,7 @@ def _seed_env_from_dotenv() -> None:  # noqa: PT004
 
 
 @pytest.fixture(autouse=True)
-def _no_dotenv(monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: PT004
+def _no_dotenv(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:  # noqa: PT004
     """Prevent ``dotenv.load_dotenv`` from re-reading ``.env`` during tests.
 
     Applied automatically to every test in this directory.  Because

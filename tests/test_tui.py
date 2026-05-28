@@ -272,13 +272,13 @@ async def test_app_compose_one_button_per_recipe(monkeypatch, tmp_path):
     expected nav-buttons — one per recipe partitioned into that tab, plus the
     synthetic ``validation``/``config`` pane buttons the app always inserts."""
     import msb_ssis2sql.tui as tui_mod
-    from textual.widgets import Button, TabPane
+    from textual.widgets import TabPane
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _spanning_recipes())
 
     app = Ssis2SqlTUI()
-    async with app.run_test() as pilot:
+    async with app.run_test():
         # All three TabPanes are present.
         tab_ids = {tp.id for tp in app.query(TabPane)}
         assert tab_ids == {"tab-migration", "tab-validation", "tab-configuration"}
@@ -303,7 +303,7 @@ async def test_app_compose_no_button_for_excluded_recipes(monkeypatch, tmp_path)
     monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _spanning_recipes())
 
     app = Ssis2SqlTUI()
-    async with app.run_test() as pilot:
+    async with app.run_test():
         # Query every Button in the whole app — across all three tabs.
         ids = {b.id for b in app.query(Button)}
         assert "nav-opus" not in ids
@@ -671,7 +671,6 @@ async def test_convert_tree_with_empty_input_path_writes_error_to_log(
         await pilot.pause()
 
         log = app.query_one("#log-migrate-directory", Log)
-        log_text = "\n".join(log.lines)
         # An error line must appear.
         assert len(log.lines) > 0, "Log must have at least one error line"
         # No subprocess must have been launched.
@@ -683,7 +682,7 @@ async def test_convert_tree_with_nonexistent_input_path_writes_error_to_log(
 ):
     """AC 6 (plan): Convert tree with non-existent input path writes error, no launch."""
     import msb_ssis2sql.tui as tui_mod
-    from textual.widgets import Input, Log
+    from textual.widgets import Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _picker_recipes())
@@ -720,7 +719,7 @@ async def test_convert_tree_with_valid_paths_runs_recipe(monkeypatch, tmp_path):
     """AC 4: Convert tree with valid input and output dirs calls Popen with
     'migrate-directory', the input path, and the output path; Log receives output."""
     import msb_ssis2sql.tui as tui_mod
-    from textual.widgets import Input, Log
+    from textual.widgets import Log
 
     monkeypatch.setattr(tui_mod, "find_repo_root", lambda _: tmp_path)
     monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _picker_recipes())
@@ -1365,7 +1364,7 @@ async def test_layer_recipes_have_no_plain_sidebar_button(monkeypatch, tmp_path)
     monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: layer_recipes)
 
     app = Ssis2SqlTUI()
-    async with app.run_test() as pilot:
+    async with app.run_test():
         # Every Button across all three tabs.
         ids = {b.id for b in app.query(Button)}
         # The pane button and the ordinary validate-cov button are present.
@@ -1597,7 +1596,7 @@ async def test_three_tab_panes_exist(monkeypatch, tmp_path):
     monkeypatch.setattr(tui_mod, "discover_recipes", lambda _: _spanning_recipes())
 
     app = Ssis2SqlTUI()
-    async with app.run_test() as pilot:
+    async with app.run_test():
         tab_ids = {tp.id for tp in app.query(TabPane)}
         assert tab_ids == {"tab-migration", "tab-validation", "tab-configuration"}
 

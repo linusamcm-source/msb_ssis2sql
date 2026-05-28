@@ -14,6 +14,8 @@ keywords = ["ssis", "dtsx", "etl", "t-sql", "sql-server", "transpiler"]
 dependencies = [
     "loguru>=0.7",
     "pre-commit>=4.6.0",
+    "pyodbc>=5.3",
+    "pyyaml>=6.0",
     "textual>=8.2",
 ]
 
@@ -31,11 +33,9 @@ dev = [
 ]
 web = ["textual-serve>=1.1"]
 validation = [
-    "pyodbc>=5.3",
     "pandas>=3.0",
     "pyarrow>=24.0",
     "sqlglot>=25.0",
-    "pyyaml>=6.0",
     "python-dotenv>=1.0",
 ]
 
@@ -49,10 +49,17 @@ include = ["msb_ssis2sql*", "validation*"]
 testpaths = ["tests"]
 addopts = "-q"
 asyncio_mode = "auto"
-markers = ["validation: differential validation (needs SQL Server)"]
+markers = [
+    "validation: differential validation (needs SQL Server)",
+    "agent_smoke: live SQL Server smoke test for agent extractor (manual, not in CI)",
+]
 
 [tool.coverage.run]
 omit = ["validation/tests/*", "validation/test_*.py", "validation/conftest.py"]
 
 [tool.coverage.report]
 exclude_lines = ["pragma: no cover", "if __name__ == .__main__.:"]
+
+[[tool.mypy.overrides]]
+module = ["pandas", "pandas.*", "pyodbc", "pyodbc.*", "yaml", "yaml.*"]
+ignore_missing_imports = true

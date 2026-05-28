@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="ChildA">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.Pipeline"
+                    DTS:ObjectName="DFT ChildA"
+                    DTS:refId="Package\DFT ChildA">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+            <component refId="src_ca" name="Src CA"
+                       componentClassID="Microsoft.OLEDBSource">
+              <properties>
+                <property name="AccessMode">2</property>
+                <property name="SqlCommand">SELECT id FROM dbo.ChildASrc</property>
+              </properties>
+              <outputs>
+                <output refId="src_ca.Output" name="OLE DB Source Output">
+                  <outputColumns>
+                    <outputColumn refId="src_ca.Output.id" name="id" dataType="i4" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+            <component refId="dest_ca" name="Dest CA"
+                       componentClassID="Microsoft.OLEDBDestination">
+              <properties>
+                <property name="AccessMode">0</property>
+                <property name="OpenRowset">dbo.ChildADest</property>
+              </properties>
+              <inputs>
+                <input refId="dest_ca.Input" name="OLE DB Destination Input">
+                  <inputColumns>
+                    <inputColumn refId="dest_ca.Input.id" cachedName="id" usageType="readOnly" />
+                  </inputColumns>
+                </input>
+              </inputs>
+            </component>
+          </components>
+          <paths>
+            <path refId="p1" name="src to dest" startId="src_ca.Output" endId="dest_ca.Input" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

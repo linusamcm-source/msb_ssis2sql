@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="MainColl">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="EPT_Space"
+                    DTS:ObjectName="Run Foo Bar (space)">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>Foo Bar.dtsx</PackageName>
+          <PackagePath>Foo Bar.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="EPT_Dot"
+                    DTS:ObjectName="Run Foo.Bar (dot)">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>Foo.Bar.dtsx</PackageName>
+          <PackagePath>Foo.Bar.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="EPT_Underscore"
+                    DTS:ObjectName="Run Foo_Bar (underscore)">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>Foo_Bar.dtsx</PackageName>
+          <PackagePath>Foo_Bar.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>
