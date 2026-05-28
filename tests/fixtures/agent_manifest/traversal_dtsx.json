@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "input_root": "/srv/etl/src",
+  "entries": [
+    {
+      "dtsx": "../../etc/passwd.dtsx",
+      "out_sql": "fact/nightly_load.sql",
+      "proc": "usp_fact_nightly_load"
+    }
+  ]
+}

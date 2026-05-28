@@ -32,6 +32,11 @@ class AgentStep:
     on_fail_step_id: int
     retry_attempts: int
     retry_interval: int
+    # Audit triple populated by the rewriter (T-4). Default None so existing
+    # callers (and the existing golden YAML) remain byte-identical.
+    original_subsystem: str | None = None
+    original_command: str | None = None
+    dtsx_source: str | None = None
 
 
 @dataclass
