@@ -8,6 +8,7 @@ SQLAgentReaderRole or db_datareader (exit 2 / permission).
 """
 from __future__ import annotations
 
+import dataclasses
 import os
 from pathlib import Path
 from typing import Any
@@ -17,6 +18,11 @@ import pyodbc
 from .._naming import sanitise
 from ..errors import AgentExtractError
 from ..observability import logger
+from .command_parser import Hit as ParseHit
+from .command_parser import Unparseable, parse_ssis_command
+from .manifest import Ambiguous
+from .manifest import Hit as ResolveHit
+from .manifest import Manifest, Miss, resolve
 from .model import AgentJob, AgentSchedule, AgentStep
 from .yaml_emitter import emit_job_yaml
 
@@ -86,6 +92,101 @@ ORDER BY j.name, sc.name
 """
 
 
+def maybe_rewrite_step(
+    step: AgentStep,
+    job_name: str,
+    manifest: Manifest | None,
+    warnings: list[tuple[str, int, str, str]],
+) -> AgentStep:
+    """Possibly rewrite ``step`` from SSIS subsystem to a TSQL EXEC call.
+
+    Pure helper exposed for unit testing (D-11) — module-importable as
+    ``msb_ssis2sql.agent.extractor.maybe_rewrite_step``. Behaviour summary:
+      * Non-SSIS step → returned unchanged, no warnings appended.
+      * SSIS step + no manifest → warn ``manifest_absent``, return verbatim.
+      * SSIS step + manifest:
+          - parse fails → warn ``unparseable``, return verbatim.
+          - resolve Miss → warn ``unresolved``, return verbatim.
+          - resolve Ambiguous → warn ``ambiguous_basename``, return verbatim.
+          - resolve Hit → return new AgentStep with subsystem=TSQL,
+            command=``EXEC <proc>;``, audit triple populated.
+
+    ``warnings`` is a sink the caller passes in (D-11); we append
+    ``(job_name, step_id, category, details)`` tuples to it. The helper
+    NEVER writes to disk — that's the writer's job.
+    """
+    if step.subsystem != "SSIS":
+        return step
+
+    if manifest is None:
+        warnings.append((job_name, step.step_id, "manifest_absent", "no manifest supplied"))
+        return step
+
+    parsed = parse_ssis_command(step.command)
+    if isinstance(parsed, Unparseable):
+        warnings.append(
+            (job_name, step.step_id, "unparseable", parsed.reason)
+        )
+        return step
+    # parsed must be a ParseHit at this point.
+    assert isinstance(parsed, ParseHit)
+
+    resolved = resolve(manifest, parsed.path)
+    if isinstance(resolved, Miss):
+        warnings.append(
+            (job_name, step.step_id, "unresolved", parsed.path)
+        )
+        return step
+    if isinstance(resolved, Ambiguous):
+        candidate_paths = ", ".join(c.dtsx for c in resolved.candidates)
+        warnings.append(
+            (job_name, step.step_id, "ambiguous_basename",
+             f"candidates=[{candidate_paths}]")
+        )
+        return step
+
+    # Hit — build the rewritten step. dataclasses.replace preserves
+    # every other field (database_name, retries, success/fail actions).
+    assert isinstance(resolved, ResolveHit)
+    return dataclasses.replace(
+        step,
+        subsystem="TSQL",
+        command=f"EXEC {resolved.proc};",
+        original_subsystem="SSIS",
+        original_command=step.command,
+        dtsx_source=resolved.dtsx_source,
+    )
+
+
+def write_agent_warnings_log(
+    out_path: Path,
+    warnings: list[tuple[str, int, str, str]],
+    *,
+    manifest_supplied: bool,
+) -> None:
+    """Write ``out_path`` with one line per warning, sorted by (job, step_id).
+
+    When ``manifest_supplied`` is False, prepend the literal notice line
+    ``manifest not supplied — all SSIS steps emitted verbatim`` per D-7.
+    Empty warnings + supplied manifest produce a zero-byte file.
+    """
+    sorted_warnings = sorted(warnings, key=lambda w: (w[0], w[1]))
+    # SEC-L1 — strip \r/\n from details so an attacker-supplied msdb command
+    # cannot forge new log lines via embedded newlines.
+    lines = [
+        f"{job}:{step_id}: {category}: {details.replace(chr(10), ' ').replace(chr(13), ' ')}"
+        for job, step_id, category, details in sorted_warnings
+    ]
+    if not manifest_supplied:
+        lines.insert(0, "manifest not supplied — all SSIS steps emitted verbatim")
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if not lines:
+        out_path.write_bytes(b"")
+    else:
+        out_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
 def _connect(dsn: str) -> Any:
     """Open a pyodbc connection. Never logs DSN or credentials."""
     user = os.environ.get("MSDB_USER", "")
@@ -116,18 +217,32 @@ def _check_permissions(cursor: Any) -> str | None:
     return None
 
 
-def extract_jobs(
+def extract_agent_jobs(
     dsn: str = "",
     out_dir: Path | str | None = None,
     job_filter: str | None = None,
+    manifest_path: Path | None = None,
 ) -> list[Path]:
     """Connect to msdb, extract agent jobs, write YAML files, return list of written paths.
 
+    When ``manifest_path`` is given, SSIS-subsystem steps are rewritten to
+    TSQL EXEC calls against the matching stored procedure (D-3 / T-4).
+    Unresolved / unparseable / ambiguous steps are passed through verbatim
+    and logged to ``<out_dir>/_agent_warnings.log`` (D-6 / T-7).
+
     Raises ``AgentExtractError`` on permission / connection / query failures.
+    Raises ``ManifestError`` if ``manifest_path`` is given but the file is
+    unreadable, invalid, or carries an unsupported version.
     Returns list of Path objects for written YAML files, sorted by job name.
     """
     out_dir = Path(out_dir) if out_dir else Path("jobs")
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Load the manifest first — invalid input must fail before we touch the DB.
+    manifest: Manifest | None = None
+    if manifest_path is not None:
+        from .manifest import load_manifest  # local import to avoid cycle in CLI module
+        manifest = load_manifest(manifest_path)
 
     try:
         conn = _connect(dsn)
@@ -180,8 +295,11 @@ def extract_jobs(
         for row in jobsched_rows:
             job_sched_names.setdefault(row[0], []).append(row[1])
 
-        # job_name -> list[AgentStep]
+        # job_name -> list[AgentStep]. Rewriter sink: tuples of
+        # (job_name, step_id, category, details) accumulated across all
+        # steps, written once at the end (D-6 / D-7 / D-8).
         steps_by_job: dict[str, list[AgentStep]] = {}
+        warning_sink: list[tuple[str, int, str, str]] = []
         for row in step_rows:
             step = AgentStep(
                 step_id=row[1],
@@ -196,6 +314,7 @@ def extract_jobs(
                 retry_attempts=row[10],
                 retry_interval=row[11],
             )
+            step = maybe_rewrite_step(step, row[0], manifest, warning_sink)
             steps_by_job.setdefault(row[0], []).append(step)
 
         written: list[Path] = []
@@ -223,6 +342,18 @@ def extract_jobs(
             out_path = out_dir / file_name
             out_path.write_text(yaml_text, encoding="utf-8")
             written.append(out_path)
+
+        # T-7 — emit _agent_warnings.log when a manifest was supplied
+        # (always, even if zero warnings → empty file) or when warnings
+        # exist (with the position-0 notice when manifest was absent per
+        # D-7). When no manifest AND no warnings, suppress the file so
+        # the existing zero-SSIS happy path stays clean.
+        if manifest is not None or warning_sink:
+            write_agent_warnings_log(
+                out_dir / "_agent_warnings.log",
+                warning_sink,
+                manifest_supplied=manifest is not None,
+            )
 
     except AgentExtractError:
         raise

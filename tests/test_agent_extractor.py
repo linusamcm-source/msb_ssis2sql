@@ -143,9 +143,9 @@ def test_extractor_happy_path_yaml_matches_golden(monkeypatch, tmp_path):
     cursor = _FakeCursor(_golden_role_probe_ok(), jobs, steps, schedules, jobsched)
     _install_fake_pyodbc(monkeypatch, cursor)
 
-    from msb_ssis2sql.agent.extractor import extract_jobs
+    from msb_ssis2sql.agent.extractor import extract_agent_jobs
 
-    written = extract_jobs(
+    written = extract_agent_jobs(
         dsn="Driver={ODBC Driver 18 for SQL Server};Server=fake;",
         out_dir=tmp_path,
     )

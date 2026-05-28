@@ -22,7 +22,7 @@ import xml.etree.ElementTree as ET
 from .component_types import resolve as resolve_kind
 from .errors import ParseError
 from .observability import logged, logger
-from .util import to_int
+from .util import decode_package_name, to_int
 from .model import (
     Column,
     Component,
@@ -100,8 +100,14 @@ def _child(elem: ET.Element | None, name: str) -> ET.Element | None:
 # --------------------------------------------------------------------------- #
 @logged
 def parse_file(path: str | pathlib.Path) -> Package:
-    """Parse a .dtsx file from disk."""
-    path = pathlib.Path(path)
+    """Parse a .dtsx file from disk.
+
+    If the literal path does not exist, falls back to URL-encoded and
+    URL-decoded sibling filenames so callers can refer to a package by either
+    its display name ('My File.dtsx') or its export-encoded name
+    ('My%20File.dtsx').
+    """
+    path = _resolve_dtsx_path(pathlib.Path(path))
     try:
         tree = ET.parse(path)
     except ET.ParseError as exc:
@@ -111,6 +117,20 @@ def parse_file(path: str | pathlib.Path) -> Package:
     package = parse_root(tree.getroot())
     package.source_path = str(path)
     return package
+
+
+def _resolve_dtsx_path(path: pathlib.Path) -> pathlib.Path:
+    """Return ``path`` or a sibling whose name differs only by URL-encoding."""
+    if path.exists():
+        return path
+    from urllib.parse import quote
+    decoded = path.parent / decode_package_name(path.name)
+    if decoded.exists():
+        return decoded
+    encoded = path.parent / quote(path.name)
+    if encoded.exists():
+        return encoded
+    return path
 
 
 @logged
@@ -278,11 +298,11 @@ def _parse_execute_package_task(
     for child in ept_elem:
         local = _local(child.tag)
         if local == "PackageName":
-            pkg_name = (child.text or "").strip()
+            pkg_name = decode_package_name((child.text or "").strip())
         elif local == "PackagePath":
-            pkg_path = (child.text or "").strip()
+            pkg_path = decode_package_name((child.text or "").strip())
         elif local == "PackageNameFromProjectReference":
-            pkg_name = pkg_name or (child.text or "").strip()
+            pkg_name = pkg_name or decode_package_name((child.text or "").strip())
     return ExecutePackageTask(
         ref_id=ref_id,
         name=name,

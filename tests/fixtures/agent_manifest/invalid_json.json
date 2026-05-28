@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "input_root": "/srv/etl/src",
+  "entries": [
+    {"dtsx": "fact/nightly_load.dtsx", "proc": "usp_fact_nightly_load", "out_sql": "fact/nightly_load.sql"}
+  // unclosed object — invalid JSON for the manifest loader

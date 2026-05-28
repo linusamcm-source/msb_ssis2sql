@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "input_root": "/srv/etl/src",
+  "entries": [
+    {
+      "dtsx": "fact/nightly_load.dtsx",
+      "out_sql": "fact/nightly_load.sql",
+      "proc": "x; DROP TABLE users;--"
+    }
+  ]
+}

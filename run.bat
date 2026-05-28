@@ -174,11 +174,13 @@ echo.
 set /p dsn="DSN (leave blank to use MSDB_DSN env): "
 set /p out="Output directory for YAML (default: jobs): "
 set /p job_filter="Optional job-name LIKE pattern (blank for all): "
+set /p proc_manifest="Optional path to _proc_manifest.json (blank to skip SSIS step rewriting): "
 if "%out%"=="" set out=jobs
 
 set cmd=uv run python -m msb_ssis2sql extract-agent-jobs --out "%out%"
-if not "%dsn%"==""        set cmd=!cmd! --dsn "%dsn%"
-if not "%job_filter%"=="" set cmd=!cmd! --filter "%job_filter%"
+if not "%dsn%"==""           set cmd=!cmd! --dsn "%dsn%"
+if not "%job_filter%"==""    set cmd=!cmd! --filter "%job_filter%"
+if not "%proc_manifest%"=="" set cmd=!cmd! --proc-manifest "%proc_manifest%"
 
 echo.
 echo Running: !cmd!
