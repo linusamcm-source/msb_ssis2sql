@@ -3,6 +3,8 @@
 Companion to [`ssis-to-adf-conversion-plan.md`](../ssis-to-adf-conversion-plan.md).
 This plan covers the conversion-pipeline changes needed before ADF/IaC work.
 
+**Superseded by:** [`plan-final-orch-only-main.md`](./plan-final-orch-only-main.md) — the orchestrator-only `main.dtsx` collapse removes the empty-body main proc plus the separate `*_orchestrator.sql` file when `main.dtsx` is a pure control-flow orchestrator. All other behaviour in this plan is preserved.
+
 ---
 
 ## Goals

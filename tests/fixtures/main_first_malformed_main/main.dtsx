@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+                DTS:ExecutableType="Microsoft.Package"
+                DTS:ObjectName="MalformedMain">
+  <DTS:Executables>
+    <DTS:Executable DTS:ExecutableType="Microsoft.ExecutePackageTask"
+                    DTS:refId="Package\EPT_A"
+                    DTS:ObjectName="Run Child A">
+      <DTS:ObjectData>
+        <ExecutePackageTask>
+          <PackageName>childa.dtsx</PackageName>
+          <PackagePath>childa.dtsx</PackagePath>
+        </ExecutePackageTask>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+  <!-- deliberately unclosed root tag below: parser must fail -->

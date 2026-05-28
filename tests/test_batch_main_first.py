@@ -13,6 +13,12 @@ from pathlib import Path
 from msb_ssis2sql.batch import BatchResult, FileOutcome, convert_tree
 
 FIXTURE = Path(__file__).parent / "fixtures" / "main_first"
+# Dual-mode main (1 DFT + 2 EPTs) — preserves the legacy dual-file output
+# (main.sql carries the DFT body; *_orchestrator.sql carries the EXECs).
+# Used by the retargeted orchestrator-file tests below per D-2 and T-5.
+FIXTURE_DUAL_MODE = (
+    Path(__file__).parent / "fixtures" / "main_first_main_with_dataflow_multi"
+)
 
 
 def test_main_dtsx_is_converted_first(tmp_path):
@@ -42,29 +48,17 @@ def test_every_emitted_sql_has_create_or_alter_procedure_header(tmp_path):
         )
 
 
-def test_orchestrator_emitted_to_distinct_file(tmp_path):
-    """Orchestrator is written to <main_proc_name>_orchestrator.sql, not main.sql."""
-    out = tmp_path / "out"
-    convert_tree(FIXTURE, out)
-
-    # main.sql must be the per-package wrapped proc (data-flow body).
-    main_sql = (out / "main.sql").read_text(encoding="utf-8")
-    assert "CREATE OR ALTER PROCEDURE" in main_sql
-
-    # Orchestrator must be in a distinct file.
-    orch_files = list(out.glob("*_orchestrator.sql"))
-    assert len(orch_files) == 1, f"expected exactly one orchestrator file, got {[f.name for f in orch_files]}"
-    orch_sql = orch_files[0].read_text(encoding="utf-8")
-    assert "EXEC" in orch_sql, "orchestrator file must contain EXEC statements"
-
-    # The two files must differ.
-    assert main_sql != orch_sql, "main.sql and orchestrator file must be distinct"
-
-
 def test_orchestrator_proc_emitted_when_main_has_execute_package_tasks(tmp_path):
-    """Orchestrator file contains EXEC lines for each child, in precedence order A then B."""
+    """Orchestrator file contains EXEC lines for each child, in precedence
+    order A then B.
+
+    Retargeted from ``main_first/`` to ``main_first_main_with_dataflow_multi/``
+    per T-5: the original ``main_first/`` collapses under D-1 (no
+    ``*_orchestrator.sql`` file), but the mixed DFT+EPT fixture preserves the
+    legacy dual-file output per D-2.
+    """
     out = tmp_path / "out"
-    convert_tree(FIXTURE, out)
+    convert_tree(FIXTURE_DUAL_MODE, out)
 
     orch_files = list(out.glob("*_orchestrator.sql"))
     assert len(orch_files) == 1, f"expected one orchestrator file, got {[f.name for f in orch_files]}"
@@ -101,9 +95,14 @@ def test_file_outcome_has_procedure_name_attribute(tmp_path):
 
 
 def test_emitted_exec_names_match_per_package_proc_names(tmp_path):
-    """AC-8 trivial: orchestrator EXECs match the per-package proc-names produced."""
+    """AC-8 trivial: orchestrator EXECs match the per-package proc-names produced.
+
+    Retargeted from ``main_first/`` to ``main_first_main_with_dataflow_multi/``
+    per T-5 for the same reason as
+    ``test_orchestrator_proc_emitted_when_main_has_execute_package_tasks``.
+    """
     out = tmp_path / "out"
-    result = convert_tree(FIXTURE, out)
+    result = convert_tree(FIXTURE_DUAL_MODE, out)
 
     orch_files = list(out.glob("*_orchestrator.sql"))
     assert len(orch_files) == 1, f"expected one orchestrator file, got {[f.name for f in orch_files]}"

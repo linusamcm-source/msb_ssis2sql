@@ -60,7 +60,12 @@ def test_parse_file_falls_back_to_encoded_sibling(tmp_path):
 
 
 def test_convert_tree_matches_encoded_disk_files_against_decoded_ept_refs(tmp_path):
-    """Orchestrator wires EPTs to children even when disk has '%20' names."""
+    """Orchestrator wires EPTs to children even when disk has '%20' names.
+
+    Under the orch-only collapse (D-1), main.dtsx has zero DFTs and both EPTs
+    resolve in-directory, so main.sql carries the EXECs directly — no separate
+    ``*_orchestrator.sql`` file is emitted (AC-9).
+    """
     out = tmp_path / "out"
     result = convert_tree(FIXTURE, out)
     assert result.failed == 0, [o.error for o in result.outcomes if not o.ok]
@@ -69,16 +74,13 @@ def test_convert_tree_matches_encoded_disk_files_against_decoded_ept_refs(tmp_pa
     all_warnings = [w for o in result.outcomes for w in o.warnings]
     assert not any("missing child" in w for w in all_warnings), all_warnings
 
-    # Orchestrator SQL must EXEC both children's procs. Discover the
-    # orchestrator file by glob — the exact proc-name depends on
-    # main.dtsx's decoded stem-derived sanitisation.
-    orchestrators = list(out.glob("*_orchestrator.sql"))
-    assert len(orchestrators) == 1, [p.name for p in orchestrators]
-    orch_sql = orchestrators[0].read_text(encoding="utf-8")
+    # D-1 collapse: EXECs land in main.sql; no separate _orchestrator.sql.
+    assert list(out.glob("*_orchestrator.sql")) == []
+    main_sql = (out / "main.sql").read_text(encoding="utf-8")
     # Both child procs must appear; their names are derived from the
     # decoded stems 'Child A' / 'Child B'.
-    assert "EXEC usp_child_a;" in orch_sql, orch_sql
-    assert "EXEC usp_child_b;" in orch_sql, orch_sql
+    assert "EXEC usp_child_a;" in main_sql, main_sql
+    assert "EXEC usp_child_b;" in main_sql, main_sql
 
 
 def test_convert_tree_emits_child_sql_files_using_decoded_proc_names(tmp_path):

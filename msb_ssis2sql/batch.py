@@ -9,7 +9,8 @@ from pathlib import Path
 from ._naming import resolve_collisions, resolve_procedure_name, sanitise
 from .control_graph import ControlFlowGraph
 from .errors import GraphError
-from .generator import ConversionResult, ConvertOptions, convert_file
+from .generator import ConvertOptions, convert_file, convert_package
+from .model import Package
 from .observability import logged, logger
 from .parser import parse_file
 from .util import decode_package_name
@@ -90,6 +91,7 @@ def convert_tree(
 
     for dir_path, dir_files in sorted(by_dir.items()):
         rel_dir = dir_path.relative_to(input_root)
+        rel_dir_str = str(rel_dir)
 
         # Resolve proc-name collisions per directory. Decode stems first so
         # '%20'-encoded disk names share a collision namespace with EPT refs.
@@ -103,18 +105,81 @@ def convert_tree(
                 main_file = f
                 break
 
-        # Order: main first, then siblings sorted.
-        ordered = []
+        # Pre-compute proc names for every file in the directory. The formula
+        # is deterministic so we can build the full map before any conversion
+        # runs; this lets the collapse decision (T-2) and the main-first
+        # emission order both run cleanly.
+        def _resolve_proc_name(src: Path) -> str:
+            canonical_stem = _decoded_stem(src)
+            sanitised_stem = collision_map.get(canonical_stem, sanitise(canonical_stem))
+            if rel_dir_str in ("", "."):
+                return f"usp_{sanitised_stem}"
+            dir_part = sanitise(rel_dir_str.replace("/", "_").replace("\\", "_"))
+            return f"usp_{dir_part}_{sanitised_stem}" if dir_part else f"usp_{sanitised_stem}"
+
+        proc_name_by_stem: dict[str, str] = {
+            _decoded_stem(f): _resolve_proc_name(f) for f in dir_files
+        }
+
+        # T-4: eagerly parse main.dtsx so the per-file loop and the collapse
+        # decision share one parse. On parse failure, record the outcome now
+        # (preserving main-first outcome ordering), skip main in the loop, but
+        # continue converting siblings.
+        cached_main_pkg: Package | None = None
+        main_parse_error: str | None = None
         if main_file is not None:
+            try:
+                cached_main_pkg = parse_file(main_file)
+            except Exception as exc:  # noqa: BLE001
+                main_parse_error = f"main.dtsx parse failed: {exc!r}"
+                main_dst = output_root / main_file.relative_to(input_root).with_suffix(".sql")
+                result.outcomes.append(
+                    FileOutcome(main_file, main_dst, ok=False, error=main_parse_error)
+                )
+                logger.warning("main.dtsx parse failed for {}: {!r}", main_file, exc)
+
+        # Cache the helper output once per directory so every downstream path
+        # (collapse trial, legacy `_emit_orchestrator`) reuses it. The helper's
+        # nested-EPT scan parses every sibling — without this cache it runs up
+        # to 3x per directory (trial + legacy emit + …).
+        precomputed_exec_lines: tuple[list[str], list[tuple[str, str]]] | None = None
+        if main_file is not None and cached_main_pkg is not None:
+            precomputed_exec_lines = _build_ordered_exec_lines(
+                cached_main_pkg, dir_files, main_file, proc_name_by_stem,
+            )
+
+        # T-2: determine collapse. Requires cached_main_pkg AND the full
+        # proc_name_by_stem (pre-computed above). D-8 forces collapse=False
+        # when --no-orchestrator is set.
+        collapse = False
+        collapse_exec_lines: list[str] = []
+        collapse_warnings: list[tuple[str, str]] = []
+        if (
+            main_file is not None
+            and cached_main_pkg is not None
+            and not no_orchestrator
+            and not cached_main_pkg.data_flows
+            and cached_main_pkg.execute_package_tasks
+            and precomputed_exec_lines is not None
+        ):
+            trial_lines, trial_warnings = precomputed_exec_lines
+            if trial_lines:
+                collapse = True
+                collapse_exec_lines = trial_lines
+                collapse_warnings = trial_warnings
+
+        # Per-file conversion. Main first (so outcome ordering preserves the
+        # main-is-first invariant), then siblings sorted. Main is routed
+        # through convert_package(cached_main_pkg, ...) so the eager parse is
+        # reused (T-4b); siblings continue to use convert_file.
+        dir_outcomes: list[FileOutcome] = []
+
+        ordered: list[Path] = []
+        if main_file is not None and cached_main_pkg is not None:
             ordered.append(main_file)
         for f in sorted(dir_files):
             if f != main_file:
                 ordered.append(f)
-
-        # Convert each file with wrap_in_procedure=True.
-        dir_outcomes: list[FileOutcome] = []
-        proc_name_by_stem: dict[str, str] = {}
-        cached_main_pkg = None  # M-8: avoid double-parsing main.dtsx
 
         for src in ordered:
             rel = src.relative_to(input_root)
@@ -127,33 +192,28 @@ def convert_tree(
                 continue
             dst.parent.mkdir(parents=True, exist_ok=True)
 
-            # Build the sanitised proc-name, honouring the collision suffix.
-            # Decode the disk stem so '%20' on disk matches EPT.package_name refs.
-            canonical_stem = _decoded_stem(src)
-            sanitised_stem = collision_map.get(canonical_stem, sanitise(canonical_stem))
-            rel_dir_str = str(rel_dir)
-            if rel_dir_str in ("", "."):
-                proc_name = f"usp_{sanitised_stem}"
-            else:
-                dir_part = sanitise(rel_dir_str.replace("/", "_").replace("\\", "_"))
-                proc_name = f"usp_{dir_part}_{sanitised_stem}" if dir_part else f"usp_{sanitised_stem}"
-            proc_name_by_stem[canonical_stem] = proc_name
+            proc_name = proc_name_by_stem[_decoded_stem(src)]
 
+            is_main = src == main_file
             wrap_opts = ConvertOptions(
                 wrap_in_procedure=True,
                 procedure_name=proc_name,
                 include_header=base_options.include_header,
+                orchestration_body=collapse_exec_lines if (is_main and collapse) else None,
             )
             try:
-                conversion: ConversionResult = convert_file(src, wrap_opts)
+                if is_main:
+                    # T-4b: reuse the eager parse instead of re-parsing.
+                    assert cached_main_pkg is not None
+                    conversion = convert_package(cached_main_pkg, wrap_opts)
+                else:
+                    conversion = convert_file(src, wrap_opts)
                 dst.write_text(conversion.sql, encoding="utf-8")
                 outcome = FileOutcome(
                     src, dst, ok=True,
                     warnings=list(conversion.warnings),
                     procedure_name=proc_name,
                 )
-                if src == main_file and conversion.package is not None:
-                    cached_main_pkg = conversion.package
                 dir_outcomes.append(outcome)
                 result.outcomes.append(outcome)
                 logger.info("converted {} -> {}", rel, dst)
@@ -163,20 +223,49 @@ def convert_tree(
                 result.outcomes.append(outcome)
                 logger.warning("failed to convert {}: {}", rel, exc)
 
-        # Emit orchestrator (unless --no-orchestrator).
+        # Attach collapse-path warnings (dangling, outside-dir, nested, cycle)
+        # to dir_outcomes so they reach _batch_warnings.log via the same
+        # mechanism the legacy path uses.
+        if collapse and collapse_warnings:
+            for _src_path, warning in collapse_warnings:
+                _add_warning_to_dir_outcomes(dir_outcomes, warning)
+
+        # Emit orchestrator:
+        # - Skip entirely under --no-orchestrator (D-8).
+        # - Skip the main-bearing branch when collapse fired (main.sql already
+        #   carries the EXECs).
+        # - Skip the main-bearing branch when main parse failed (no main_pkg
+        #   to drive the orchestrator); siblings stay converted.
+        # - Always run for directories without main.dtsx (synthesised path).
         if not no_orchestrator:
-            _emit_orchestrator(
-                dir_path=dir_path,
-                rel_dir=rel_dir,
-                dir_files=dir_files,
-                main_file=main_file,
-                proc_name_by_stem=proc_name_by_stem,
-                output_root=output_root,
-                dir_outcomes=dir_outcomes,
-                result=result,
-                base_options=base_options,
-                cached_main_pkg=cached_main_pkg,
-            )
+            if main_file is None:
+                _emit_orchestrator(
+                    dir_path=dir_path,
+                    rel_dir=rel_dir,
+                    dir_files=dir_files,
+                    main_file=main_file,
+                    proc_name_by_stem=proc_name_by_stem,
+                    output_root=output_root,
+                    dir_outcomes=dir_outcomes,
+                    result=result,
+                    base_options=base_options,
+                    cached_main_pkg=cached_main_pkg,
+                    precomputed_exec_lines=precomputed_exec_lines,
+                )
+            elif cached_main_pkg is not None and not collapse:
+                _emit_orchestrator(
+                    dir_path=dir_path,
+                    rel_dir=rel_dir,
+                    dir_files=dir_files,
+                    main_file=main_file,
+                    proc_name_by_stem=proc_name_by_stem,
+                    output_root=output_root,
+                    dir_outcomes=dir_outcomes,
+                    result=result,
+                    base_options=base_options,
+                    cached_main_pkg=cached_main_pkg,
+                    precomputed_exec_lines=precomputed_exec_lines,
+                )
 
         # Collect all warnings for batch log.
         for outcome in dir_outcomes:
@@ -195,6 +284,107 @@ def convert_tree(
     return result
 
 
+def _build_ordered_exec_lines(
+    main_pkg: Package,
+    dir_files: list[Path],
+    main_file: Path,
+    proc_name_by_stem: dict[str, str],
+) -> tuple[list[str], list[tuple[str, str]]]:
+    """Build the topologically ordered EXEC body for the orchestrator path.
+
+    Returns ``(exec_lines, warnings)`` where ``exec_lines`` are raw, unindented
+    SQL statements (``"EXEC usp_childa;"``) and ``warnings`` are
+    ``(source_path, warning_text)`` pairs matching the existing
+    ``_emit_orchestrator`` warning shape.
+
+    Owns every caller-side step that lives in the orchestrator emission path:
+        * ``ControlFlowGraph`` construction
+        * ``topological_order()`` + ``GraphError`` -> declaration-order fallback
+          with pinned warning ``"main orchestrator: cycle detected on edge
+          {from} -> {to}; falling back to declaration order"``
+        * Dangling-ref scan -> ``"missing child: {pkg_name!r} referenced by EPT
+          but not found in directory"``
+        * Outside-dir filter -> ``"outside-dir child reference rejected:
+          {pkg_name!r}"``
+        * Nested-EPT child scan -> ``"nested orchestration: {src.name} itself
+          contains ExecutePackageTasks"``
+        * EXEC line formatting
+
+    Both the collapse path (T-2) and the legacy ``_emit_orchestrator`` call it
+    so the warnings and ordering are identical across paths.
+    """
+    warnings: list[tuple[str, str]] = []
+    main_src = str(main_file)
+    epts = main_pkg.execute_package_tasks
+
+    # Nested-EPT child scan: warn but don't block.
+    for src in dir_files:
+        if src == main_file:
+            continue
+        try:
+            child_pkg = parse_file(src)
+        except Exception:  # noqa: BLE001 - child parse failure surfaces via convert pass
+            continue
+        if child_pkg.execute_package_tasks:
+            warnings.append(
+                (main_src, f"nested orchestration: {src.name} itself contains ExecutePackageTasks")
+            )
+
+    # Topological order with declaration-order fallback on cycle.
+    try:
+        graph = ControlFlowGraph(main_pkg)
+        ordered_epts = graph.topological_order()
+        for w in graph.warnings:
+            warnings.append((main_src, w))
+    except GraphError as exc:
+        edge_msg = str(exc)
+        m = re.search(r"'([^']+)' -> '([^']+)'", edge_msg)
+        if m:
+            from_r, to_r = m.group(1), m.group(2)
+            cycle_warning = (
+                f"main orchestrator: cycle detected on edge {from_r} -> {to_r}; "
+                f"falling back to declaration order"
+            )
+        else:
+            cycle_warning = (
+                "main orchestrator: cycle detected on edge ? -> ?; "
+                "falling back to declaration order"
+            )
+        warnings.append((main_src, cycle_warning))
+        ordered_epts = epts  # declaration order fallback
+
+    # Dangling / outside-dir scan. Compare against decoded disk names so
+    # '%20'-encoded files match decoded EPT refs.
+    dir_file_names = {decode_package_name(f.name).lower() for f in dir_files}
+    for ept in ordered_epts:
+        pkg_name = ept.package_name
+        if not pkg_name:
+            continue
+        if ".." in pkg_name or pkg_name.startswith("/"):
+            warnings.append(
+                (main_src, f"outside-dir child reference rejected: {pkg_name!r}")
+            )
+            continue
+        if pkg_name.lower() not in dir_file_names:
+            warnings.append(
+                (main_src, f"missing child: {pkg_name!r} referenced by EPT but not found in directory")
+            )
+
+    # EXEC line formatting (raw, unindented).
+    exec_lines: list[str] = []
+    for ept in ordered_epts:
+        pkg_name = ept.package_name
+        if not pkg_name:
+            continue
+        if ".." in pkg_name or pkg_name.startswith("/"):
+            continue
+        stem = Path(pkg_name).stem
+        if stem in proc_name_by_stem:
+            exec_lines.append(f"EXEC {proc_name_by_stem[stem]};")
+
+    return exec_lines, warnings
+
+
 def _emit_orchestrator(
     *,
     dir_path: Path,
@@ -206,103 +396,55 @@ def _emit_orchestrator(
     dir_outcomes: list[FileOutcome],
     result: BatchResult,
     base_options: ConvertOptions,
-    cached_main_pkg=None,
+    cached_main_pkg: Package | None = None,
+    precomputed_exec_lines: tuple[list[str], list[tuple[str, str]]] | None = None,
 ) -> list[tuple[str, str]]:
-    """Emit the orchestrator SQL for a directory. Returns (src_path, warning) pairs."""
+    """Emit the orchestrator SQL for a directory. Returns (src_path, warning) pairs.
+
+    ``precomputed_exec_lines``: when supplied, skip the internal call to
+    ``_build_ordered_exec_lines`` and reuse the caller's cached tuple. The
+    caller computes this once per directory so the helper's nested-EPT
+    sibling parse loop runs at most once per directory.
+    """
     warnings_out: list[tuple[str, str]] = []
     rel_dir_str = str(rel_dir)
 
     if main_file is not None:
-        # Use cached parse result from the conversion pass to avoid double-parsing (M-8).
+        # Caller is expected to have eagerly parsed main.dtsx (T-4). Defensive
+        # fallback parse retained for safety.
         if cached_main_pkg is not None:
             main_pkg = cached_main_pkg
         else:
             try:
                 main_pkg = parse_file(main_file)
             except Exception as exc:  # noqa: BLE001
-                warnings_out.append((str(main_file), f"main.dtsx parse failed: {exc!r}; orchestrator skipped"))
+                warnings_out.append(
+                    (str(main_file), f"main.dtsx parse failed: {exc!r}; orchestrator skipped")
+                )
                 return warnings_out
 
-        epts = main_pkg.execute_package_tasks
-        if not epts:
+        if not main_pkg.execute_package_tasks:
             # Zero EPTs: main's own data flow is its proc body. No orchestrator.
             return warnings_out
 
-        # Check for nested EPTs in children (warn but don't block).
-        for src in dir_files:
-            if src == main_file:
-                continue
-            try:
-                child_pkg = parse_file(src)
-                if child_pkg.execute_package_tasks:
-                    w = f"nested orchestration: {src.name} itself contains ExecutePackageTasks"
-                    warnings_out.append((str(main_file), w))
-                    _add_warning_to_dir_outcomes(dir_outcomes, w)
-            except Exception:  # noqa: BLE001
-                pass
+        if precomputed_exec_lines is not None:
+            exec_lines, helper_warnings = precomputed_exec_lines
+        else:
+            exec_lines, helper_warnings = _build_ordered_exec_lines(
+                main_pkg, dir_files, main_file, proc_name_by_stem,
+            )
+        for src_path, warning in helper_warnings:
+            warnings_out.append((src_path, warning))
+            _add_warning_to_dir_outcomes(dir_outcomes, warning)
 
-        # Get topological order of EPTs.
-        try:
-            graph = ControlFlowGraph(main_pkg)
-            ordered_epts = graph.topological_order()
-            for w in graph.warnings:
-                warnings_out.append((str(main_file), w))
-                _add_warning_to_dir_outcomes(dir_outcomes, w)
-        except GraphError as exc:
-            # Pinned format from plan-final.md Decisions.
-            edge_msg = str(exc)
-            # Extract from/to from the GraphError message.
-            m = re.search(r"'([^']+)' -> '([^']+)'", edge_msg)
-            if m:
-                from_r, to_r = m.group(1), m.group(2)
-                w = (
-                    f"main orchestrator: cycle detected on edge {from_r} -> {to_r}; "
-                    f"falling back to declaration order"
-                )
-            else:
-                w = "main orchestrator: cycle detected on edge ? -> ?; falling back to declaration order"
-            warnings_out.append((str(main_file), w))
-            _add_warning_to_dir_outcomes(dir_outcomes, w)
-            ordered_epts = epts  # declaration order fallback
-
-        # Warn about dangling refs (EPT package names not in dir_files).
-        # Compare against decoded disk names so '%20'-encoded files match
-        # decoded EPT refs (parser already decodes the in-XML side).
-        dir_file_names = {decode_package_name(f.name).lower() for f in dir_files}
-        for ept in ordered_epts:
-            pkg_name = ept.package_name
-            if not pkg_name:
-                continue
-            # Outside-dir check.
-            if ".." in pkg_name or pkg_name.startswith("/"):
-                w = f"outside-dir child reference rejected: {pkg_name!r}"
-                warnings_out.append((str(main_file), w))
-                _add_warning_to_dir_outcomes(dir_outcomes, w)
-                continue
-            if pkg_name.lower() not in dir_file_names:
-                w = f"missing child: {pkg_name!r} referenced by EPT but not found in directory"
-                warnings_out.append((str(main_file), w))
-                _add_warning_to_dir_outcomes(dir_outcomes, w)
-
-        # Build EXEC order: EPTs that reference files present in the directory.
-        exec_lines: list[str] = []
-        for ept in ordered_epts:
-            pkg_name = ept.package_name
-            if not pkg_name:
-                continue
-            if ".." in pkg_name or pkg_name.startswith("/"):
-                continue
-            # Derive stem from package_name (already decoded by parser).
-            stem = Path(pkg_name).stem
-            if stem in proc_name_by_stem:
-                exec_lines.append(f"    EXEC {proc_name_by_stem[stem]};")
-
+        # Legacy dual-file path indents EXEC lines by 4 spaces inside the proc.
+        indented_exec_lines = [f"    {line}" for line in exec_lines]
         main_proc_name = proc_name_by_stem.get(
             _decoded_stem(main_file),
             resolve_procedure_name(rel_dir, _decoded_stem(main_file)),
         )
         orch_proc_name = f"{main_proc_name}_orchestrator"
-        orch_sql = _render_orchestrator_proc(orch_proc_name, exec_lines)
+        orch_sql = _render_orchestrator_proc(orch_proc_name, indented_exec_lines)
 
         dst = output_root / rel_dir / f"{orch_proc_name}.sql"
         if dst.resolve().is_relative_to(output_root):

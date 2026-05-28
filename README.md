@@ -152,6 +152,19 @@ it only reads the upstream `Relation`'s column list. The generator walks the
 graph backwards from each destination so a statement's `WITH` block contains
 exactly the CTEs that destination depends on.
 
+### Orchestrator-only `main.dtsx` collapse
+
+When `convert-tree` encounters a directory whose `main.dtsx` is a pure
+control-flow orchestrator — zero Data Flow Tasks plus one or more
+`ExecutePackageTask`s that resolve to siblings in the same directory —
+`main.sql` is emitted as a *single* stored procedure whose body is the
+topologically ordered `EXEC` sequence. No separate `*_orchestrator.sql` file
+is produced, and the canonical entry point keeps the `usp_<main>` name.
+Mixed-mode mains (DFTs + EPTs), dangling-only EPTs, and the `--no-orchestrator`
+CLI flag all fall back to the legacy dual-file output (`main.sql` body + a
+distinct `*_orchestrator.sql`). See `docs/plan-final-orch-only-main.md` for
+the full decision matrix.
+
 ## Supported components
 
 | SSIS component | T-SQL translation |
