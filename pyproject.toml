@@ -52,6 +52,7 @@ asyncio_mode = "auto"
 markers = [
     "validation: differential validation (needs SQL Server)",
     "agent_smoke: live SQL Server smoke test for agent extractor (manual, not in CI)",
+    "package_smoke: live SQL Server smoke test for package extractor (manual, not in CI)",
 ]
 
 [tool.coverage.run]

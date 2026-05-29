@@ -98,7 +98,7 @@ msb_ssis2sql convert package.dtsx --no-header --quiet    # bare SQL, no stderr w
 msb_ssis2sql inspect package.dtsx                 # print the parsed component graph
 ```
 
-The CLI has four sub-commands:
+The CLI has five sub-commands:
 
 | Command | What it does |
 |---------|--------------|
@@ -106,6 +106,7 @@ The CLI has four sub-commands:
 | `inspect` | print the parsed component graph and exit |
 | `convert-tree IN OUT` | recursively convert a directory of `.dtsx` into a mirrored `.sql` tree (see [How it works](#how-it-works)); `--no-orchestrator` opts out of the collapsed main proc |
 | `extract-agent-jobs` | read `msdb.dbo.sysjobs*` over ODBC and emit one YAML file per SQL Server Agent job; `--proc-manifest` rewrites SSIS steps to call the converted procedures |
+| `extract-packages` | connect to a SQL Server store (Windows auth) and write every stored SSIS package to disk as `.dtsx`; auto-detects the SSISDB catalog, falling back to the legacy `msdb` store. See [Extracting packages from SQL Server](#extracting-packages-from-sql-server) |
 
 `-v` / `-vv` raise the log level on any command (see [Logging](#logging)).
 
@@ -163,6 +164,48 @@ To instrument your own code: `@logged` on a function, `@log_methods` on a class,
 or `instrument_module(sys.modules[__name__])` for a whole module. The decorator
 **re-raises** by default — pass `reraise=False` only where swallowing the error
 and returning `None` is genuinely correct, never as a blanket default.
+
+## Extracting packages from SQL Server
+
+`extract-packages` pulls SSIS packages straight out of a SQL Server instance
+and writes each as a `.dtsx` file — the same format `convert-tree` consumes, so
+the two compose into an end-to-end migration.
+
+```sh
+# Windows Integrated auth (the current process identity). Auto-detects the
+# SSISDB catalog, else reads the legacy msdb package store.
+msb_ssis2sql extract-packages --server sql01 --out ./packages
+just extract-packages sql01 ./packages          # same thing via justfile
+```
+
+Two stores are supported, chosen by `--store {auto,msdb,ssisdb}`:
+
+| Store | Source | On disk |
+|-------|--------|---------|
+| `msdb` | `msdb.dbo.sysssispackages` (the `packagedata` column *is* the `.dtsx`) | `<out>/<folder>/<name>.dtsx` |
+| `ssisdb` | the SSIS catalog — packages live inside `.ispac` project archives fetched via `catalog.get_project` and unzipped | `<out>/<folder>/<project>/<name>.dtsx` |
+
+`auto` (the default) probes `DB_ID('SSISDB')` and prefers the catalog when
+present. The connection uses **Windows Integrated auth**
+(`Trusted_Connection=yes`) — no username or password is ever read, passed, or
+logged. Alongside the `.dtsx` tree the command writes a deterministic
+`_packages_manifest.json` (every package → its output path) and, when a package
+is skipped, a `_packages_warnings.log`. `--clean` wipes the output directory
+first for idempotent re-runs; `--filter` selects by case-insensitive substring.
+
+### From an Azure DevOps pipeline
+
+`azure-pipelines.yaml` runs this from a pipeline. Every operator input (server,
+port, store, database, filter, output directory) is a `parameters:` entry at the
+top of the file, chosen at queue time. Because Windows Integrated auth carries
+no password, **nothing secret is stored in the pipeline** — but it does require
+a **self-hosted Windows agent** whose service account is the domain identity
+with read access to SQL Server (Microsoft-hosted agents cannot join the domain
+and cannot do integrated auth). The agent VM needs ODBC Driver 18 and `uv`
+installed once. An optional `convertToSql` parameter chains the extracted
+packages straight into `convert-tree`. See
+`docs/plan-extract-packages-pipeline.md` for the full design and the read-only
+SQL grants required.
 
 ## How it works
 
@@ -304,6 +347,7 @@ msb_ssis2sql/
   generator.py         CTE assembly -> consolidated T-SQL
   batch.py             convert-tree: a directory of .dtsx -> a mirrored .sql tree
   agent/               SQL Server Agent job extraction (msdb -> YAML) + step rewriting
+  packages/            SSIS package extraction (msdb store / SSISDB catalog -> .dtsx)
   dialect.py           T-SQL identifier quoting
   sqltypes.py          SSIS data-type codes -> T-SQL types
   _naming.py           identifier sanitiser + per-directory collision suffixes

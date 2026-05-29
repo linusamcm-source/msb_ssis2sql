@@ -20,3 +20,7 @@ class GraphError(Ssis2SqlError):
 
 class AgentExtractError(Ssis2SqlError):
     """The SQL Server Agent job extraction failed: connection, permission, or query."""
+
+
+class PackageExtractError(Ssis2SqlError):
+    """SSIS package extraction failed: connection, permission, query, or store-detection."""

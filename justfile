@@ -59,6 +59,13 @@ convert-samples:
     done < <(find examples/samples -name '*.dtsx' -not -path '*/bin/*' -print0 | sort -z)
     echo "done: ${count} package(s) converted into generated_scripts/"
 
+# Extract every SSIS package from a SQL Server instance into OUT as .dtsx files,
+# using Windows Integrated auth (the current process identity). Auto-detects the
+# SSISDB catalog, falling back to the legacy msdb store.
+# Usage: just extract-packages sql-host path/to/output
+extract-packages SERVER OUT:
+    uv run python -m msb_ssis2sql extract-packages --server '{{SERVER}}' --out '{{OUT}}'
+
 # Launch the Textual control-panel UI for msb_ssis2sql.
 tui:
     uv run python -m msb_ssis2sql.tui
@@ -87,6 +94,11 @@ validate-static:
 # extractor against it. Manual pre-merge smoke; not part of `just test`.
 extract-agent-jobs-smoke:
     uv run pytest validation/ -m agent_smoke
+
+# Run the package extractor against a live SQL Server (Windows auth). Skips
+# unless MSSQL_SERVER_ADDRESS is set and reachable. Manual; not part of `just test`.
+extract-packages-smoke:
+    uv run pytest validation/ -m package_smoke
 
 # Remove the virtual environment, lockfile-tracked caches, build artefacts.
 clean:

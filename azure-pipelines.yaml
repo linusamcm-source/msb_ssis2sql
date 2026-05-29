@@ -1,0 +1,100 @@
+# Extract SSIS packages from a parameterised SQL Server instance using Windows
+# Integrated authentication, then optionally convert them to T-SQL.
+#
+# Windows auth note (important): integrated auth against a domain SQL Server
+# requires a SELF-HOSTED agent whose service account is the domain identity
+# that has read rights on the instance. Microsoft-hosted agents cannot join the
+# domain and therefore cannot use Windows Integrated auth. The connection uses
+# Trusted_Connection=yes — no username or password is ever stored or passed.
+#
+# Agent prerequisites (installed once when the agent VM is built):
+#   * Microsoft ODBC Driver 18 for SQL Server
+#   * uv (https://docs.astral.sh/uv/)
+#
+# All operator-facing inputs are parameters declared here at the top of the file
+# and chosen at queue time.
+
+parameters:
+  - name: sqlServer
+    displayName: SQL Server host
+    type: string
+    default: 'sql-prod-01.corp.example.com'
+  - name: sqlPort
+    displayName: SQL Server TCP port
+    type: string
+    default: '1433'
+  - name: packageStore
+    displayName: Package store
+    type: string
+    default: 'auto'
+    values:
+      - auto
+      - msdb
+      - ssisdb
+  - name: database
+    displayName: Connection database (blank => master; queries are 3-part qualified)
+    type: string
+    default: ''
+  - name: packageFilter
+    displayName: Package name filter (blank => all packages)
+    type: string
+    default: ''
+  - name: outputDir
+    displayName: Output directory on the agent
+    type: string
+    default: '$(Pipeline.Workspace)/ssis-packages'
+  - name: convertToSql
+    displayName: Also convert extracted packages to T-SQL (convert-tree)
+    type: boolean
+    default: false
+  - name: sqlOutputDir
+    displayName: Output directory for generated T-SQL (when convertToSql=true)
+    type: string
+    default: '$(Pipeline.Workspace)/generated-sql'
+
+variables:
+  - name: pythonVersion
+    value: '3.14'
+
+# Point this at the self-hosted Windows pool whose agent runs as the domain
+# service account that authenticates to SQL Server.
+pool:
+  name: 'self-hosted-windows-domain'
+
+steps:
+  - checkout: self
+
+  - script: |
+      uv sync --locked --no-group validation
+    displayName: 'Install msb_ssis2sql (uv)'
+
+  # Trusted_Connection=yes authenticates as the agent service identity, so no
+  # credential is supplied here. --clean makes re-runs idempotent.
+  - script: >
+      uv run python -m msb_ssis2sql extract-packages
+      --server "${{ parameters.sqlServer }}"
+      --port "${{ parameters.sqlPort }}"
+      --store "${{ parameters.packageStore }}"
+      --database "${{ parameters.database }}"
+      --filter "${{ parameters.packageFilter }}"
+      --out "${{ parameters.outputDir }}"
+      --clean
+      -v
+    displayName: 'Extract SSIS packages (Windows auth)'
+
+  - publish: '${{ parameters.outputDir }}'
+    artifact: ssis-packages
+    displayName: 'Publish extracted .dtsx packages'
+
+  # Optional end-to-end: turn the extracted packages into consolidated T-SQL.
+  - ${{ if eq(parameters.convertToSql, true) }}:
+      - script: >
+          uv run python -m msb_ssis2sql convert-tree
+          "${{ parameters.outputDir }}"
+          "${{ parameters.sqlOutputDir }}"
+          -v
+        displayName: 'Convert packages to T-SQL (convert-tree)'
+
+      - publish: '${{ parameters.sqlOutputDir }}'
+        artifact: generated-sql
+        displayName: 'Publish generated T-SQL'
