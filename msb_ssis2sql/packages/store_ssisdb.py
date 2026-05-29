@@ -32,6 +32,20 @@ def _dtsx_stem(name: str) -> str:
     return name[:-5] if name.lower().endswith(".dtsx") else name
 
 
+def ispac_members(blob: bytes) -> dict[str, bytes]:
+    """Unzip an ``.ispac`` and return ``{basename: bytes}`` for every member.
+
+    Raises :class:`zipfile.BadZipFile` if *blob* is not a zip.
+    """
+    members: dict[str, bytes] = {}
+    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            members[info.filename.rsplit("/", 1)[-1]] = zf.read(info)
+    return members
+
+
 def ispac_to_dtsx(blob: bytes) -> dict[str, bytes]:
     """Unzip an ``.ispac`` archive and return ``{package-stem: dtsx-bytes}``.
 
@@ -39,22 +53,28 @@ def ispac_to_dtsx(blob: bytes) -> dict[str, bytes]:
     match against ``catalog.packages.name`` whether or not it carries the
     extension. Raises :class:`zipfile.BadZipFile` if *blob* is not a zip.
     """
-    members: dict[str, bytes] = {}
-    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
-        for info in zf.infolist():
-            if info.filename.lower().endswith(".dtsx"):
-                stem = _dtsx_stem(info.filename.rsplit("/", 1)[-1])
-                members[stem] = zf.read(info)
-    return members
+    return {
+        _dtsx_stem(name): data
+        for name, data in ispac_members(blob).items()
+        if name.lower().endswith(".dtsx")
+    }
 
 
-def fetch_packages(cursor: Any) -> tuple[list[ExtractedPackage], list[str]]:
-    """Enumerate the catalog and return ``(packages, warnings)``.
+# Per-project non-.dtsx files: {(folder, project): {member_basename: bytes}}.
+ProjectFiles = dict[tuple[str, str], dict[str, bytes]]
+
+
+def fetch_packages(
+    cursor: Any,
+) -> tuple[list[ExtractedPackage], ProjectFiles, list[str]]:
+    """Enumerate the catalog and return ``(packages, project_files, warnings)``.
 
     One ``get_project`` call per distinct ``(folder, project)`` — its ``.ispac``
-    is unzipped once and shared across that project's packages. A package whose
-    ``.dtsx`` member is missing from the project archive, or a project whose
-    binary will not unzip, is skipped with a warning rather than aborting the run.
+    is unzipped once and shared across that project's packages. ``project_files``
+    holds the non-``.dtsx`` members (``@Project.manifest``, ``Project.params``,
+    ``*.conmgr``) for the ``--expanded`` write path. A package whose ``.dtsx``
+    member is missing, or a project whose binary will not unzip, is skipped with
+    a warning rather than aborting the run.
     """
     cursor.execute(ENUMERATE_SQL)
     rows = cursor.fetchall()
@@ -65,6 +85,7 @@ def fetch_packages(cursor: Any) -> tuple[list[ExtractedPackage], list[str]]:
         projects.setdefault((folder, project), []).append(package)
 
     packages: list[ExtractedPackage] = []
+    project_files: ProjectFiles = {}
     warnings: list[str] = []
 
     for (folder, project), package_names in projects.items():
@@ -75,14 +96,24 @@ def fetch_packages(cursor: Any) -> tuple[list[ExtractedPackage], list[str]]:
             continue
         blob = bytes(row[0])
         try:
-            members = ispac_to_dtsx(blob)
+            members = ispac_members(blob)
         except zipfile.BadZipFile:
             warnings.append(f"{folder}/{project}: project binary is not a valid .ispac archive")
             continue
 
+        dtsx = {
+            _dtsx_stem(name): data
+            for name, data in members.items()
+            if name.lower().endswith(".dtsx")
+        }
+        project_files[(folder, project)] = {
+            name: data
+            for name, data in members.items()
+            if not name.lower().endswith(".dtsx")
+        }
+
         for package in package_names:
-            stem = _dtsx_stem(package)
-            payload = members.get(stem)
+            payload = dtsx.get(_dtsx_stem(package))
             if payload is None:
                 warnings.append(
                     f"{folder}/{project}/{package}: no matching .dtsx member in project archive"
@@ -98,4 +129,4 @@ def fetch_packages(cursor: Any) -> tuple[list[ExtractedPackage], list[str]]:
                 )
             )
 
-    return packages, warnings
+    return packages, project_files, warnings

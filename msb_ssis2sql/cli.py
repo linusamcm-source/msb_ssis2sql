@@ -124,6 +124,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--clean", action="store_true",
         help="Delete the output directory before extracting (idempotent re-runs).",
     )
+    packages.add_argument(
+        "--expanded", action="store_true",
+        help="SSISDB only: also write each project's @Project.manifest, "
+             "Project.params and *.conmgr so convert-tree reads it losslessly.",
+    )
 
     return parser
 
@@ -254,6 +259,7 @@ def _cmd_extract_packages(args) -> int:
         driver=args.driver,
         trust_cert=args.trust_cert,
         clean=args.clean,
+        expanded=args.expanded,
     )
     for p in written:
         print(f"wrote {p}")

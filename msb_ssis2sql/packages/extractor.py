@@ -77,26 +77,35 @@ def _matches(name: str, name_filter: str | None) -> bool:
 
 def collect_packages(
     cursor: Any, store: str, name_filter: str | None = None
-) -> tuple[list[ExtractedPackage], list[str]]:
-    """Fetch packages from *store* and apply the optional name filter."""
+) -> tuple[list[ExtractedPackage], "store_ssisdb.ProjectFiles", list[str]]:
+    """Fetch packages from *store*, returning ``(packages, project_files, warnings)``.
+
+    ``project_files`` is empty for the msdb store (no project tier).
+    """
+    project_files: store_ssisdb.ProjectFiles = {}
     if store == "msdb":
         packages = store_msdb.fetch_packages(cursor)
         warnings: list[str] = []
     elif store == "ssisdb":
-        packages, warnings = store_ssisdb.fetch_packages(cursor)
+        packages, project_files, warnings = store_ssisdb.fetch_packages(cursor)
     else:  # pragma: no cover - guarded by argparse choices upstream
         raise PackageExtractError(f"unknown store {store!r}")
 
     filtered = [p for p in packages if _matches(p.name, name_filter)]
-    return filtered, warnings
+    return filtered, project_files, warnings
+
+
+def _project_dir(folder: str, project: str | None) -> Path:
+    """Sanitised output directory (relative to out_dir) for a folder/project."""
+    parts = [sanitise(folder)] if folder else []
+    if project:
+        parts.append(sanitise(project))
+    return Path(*parts) if parts else Path(".")
 
 
 def _relative_dir(pkg: ExtractedPackage) -> Path:
     """Sanitised output directory (relative to out_dir) for *pkg*."""
-    parts = [sanitise(pkg.folder)] if pkg.folder else []
-    if pkg.project:
-        parts.append(sanitise(pkg.project))
-    return Path(*parts) if parts else Path(".")
+    return _project_dir(pkg.folder, pkg.project)
 
 
 def _stem(name: str) -> str:
@@ -159,8 +168,38 @@ def write_packages(
     return written, entries
 
 
-def _write_manifest(out_dir: Path, store: str, entries: list[dict[str, Any]]) -> None:
-    manifest = {"version": MANIFEST_VERSION, "store": store, "packages": entries}
+def write_project_files(
+    project_files: "store_ssisdb.ProjectFiles", out_dir: Path
+) -> list[str]:
+    """Write each project's non-.dtsx members verbatim into the project dir.
+
+    Member basenames (``@Project.manifest``, ``Project.params``, ``*.conmgr``)
+    are preserved exactly so ``convert-tree`` / ``load_project`` find them
+    alongside the extracted ``.dtsx``. Returns the written relative paths.
+    """
+    written: list[str] = []
+    for (folder, project), files in sorted(project_files.items()):
+        rel_dir = _project_dir(folder, project)
+        for member_name, data in sorted(files.items()):
+            target = out_dir / rel_dir / member_name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+            written.append((rel_dir / member_name).as_posix())
+    return written
+
+
+def _write_manifest(
+    out_dir: Path,
+    store: str,
+    entries: list[dict[str, Any]],
+    project_files: list[str] | None = None,
+) -> None:
+    manifest = {
+        "version": MANIFEST_VERSION,
+        "store": store,
+        "packages": entries,
+        "project_files": project_files or [],
+    }
     (out_dir / MANIFEST_NAME).write_text(
         json.dumps(manifest, indent=2, sort_keys=False) + "\n", encoding="utf-8"
     )
@@ -184,12 +223,18 @@ def extract_packages(
     driver: str = _DEFAULT_DRIVER,
     trust_cert: bool = True,
     clean: bool = False,
+    expanded: bool = False,
 ) -> list[Path]:
     """Connect, extract every SSIS package, write ``.dtsx`` files + a manifest.
 
     Parameters mirror the CLI. *database* may be blank — the queries are
     three-part qualified (``msdb.dbo.*`` / ``SSISDB.catalog.*``), so we default
     the connection scope to ``master``.
+
+    When *expanded* is set (SSISDB catalog only), the project-scoped files
+    (``@Project.manifest``, ``Project.params``, ``*.conmgr``) are written
+    alongside each project's ``.dtsx`` so the output is a faithful expanded
+    project that ``convert-tree`` can read losslessly.
 
     Raises
     ------
@@ -219,7 +264,9 @@ def extract_packages(
         cursor = conn.cursor()
         resolved_store = resolve_store(cursor, store)
         logger.info("extract-packages: store resolved to {}", resolved_store)
-        packages, warnings = collect_packages(cursor, resolved_store, name_filter)
+        packages, project_files, warnings = collect_packages(
+            cursor, resolved_store, name_filter
+        )
     except PackageExtractError:
         conn.close()
         raise
@@ -234,6 +281,9 @@ def extract_packages(
             pass
 
     written, entries = write_packages(packages, out_path)
-    _write_manifest(out_path, resolved_store, entries)
+    project_file_paths: list[str] = []
+    if expanded and project_files:
+        project_file_paths = write_project_files(project_files, out_path)
+    _write_manifest(out_path, resolved_store, entries, project_file_paths)
     _write_warnings(out_path, warnings)
     return written

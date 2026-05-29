@@ -233,6 +233,56 @@ def test_extract_ssisdb_unzips_packages(monkeypatch, tmp_path):
     assert manifest["packages"][0]["project"] == "ETL"
 
 
+def test_expanded_writes_project_files_and_manifest_lists_them(monkeypatch, tmp_path):
+    ispac = _make_ispac(
+        {
+            "Extract.dtsx": b"<e/>",
+            "Project.params": b"<SSIS:Parameters/>",
+            "Conn.conmgr": b"<DTS:ConnectionManager/>",
+            "@Project.manifest": b"<SSIS:Project/>",
+        }
+    )
+    enumerate_rows = [("Finance", "ETL", "Extract.dtsx")]
+    cur = _FakeCursor(
+        ssisdb_dbid=9,
+        enumerate_rows=enumerate_rows,
+        project_blobs={("Finance", "ETL"): ispac},
+    )
+    _install(monkeypatch, cur)
+
+    extractor.extract_packages(
+        server="sql01", store="ssisdb", out_dir=tmp_path, expanded=True
+    )
+
+    proj_dir = tmp_path / "finance" / "etl"
+    assert (proj_dir / "extract.dtsx").read_bytes() == b"<e/>"
+    # Project files keep their exact basenames so convert-tree/load_project find them.
+    assert (proj_dir / "Project.params").read_bytes() == b"<SSIS:Parameters/>"
+    assert (proj_dir / "Conn.conmgr").exists()
+    assert (proj_dir / "@Project.manifest").exists()
+
+    manifest = json.loads((tmp_path / "_packages_manifest.json").read_text())
+    assert sorted(manifest["project_files"]) == [
+        "finance/etl/@Project.manifest",
+        "finance/etl/Conn.conmgr",
+        "finance/etl/Project.params",
+    ]
+
+
+def test_not_expanded_omits_project_files(monkeypatch, tmp_path):
+    ispac = _make_ispac({"Extract.dtsx": b"<e/>", "Project.params": b"<p/>"})
+    cur = _FakeCursor(
+        ssisdb_dbid=9,
+        enumerate_rows=[("Finance", "ETL", "Extract.dtsx")],
+        project_blobs={("Finance", "ETL"): ispac},
+    )
+    _install(monkeypatch, cur)
+    extractor.extract_packages(server="sql01", store="ssisdb", out_dir=tmp_path)
+    assert not (tmp_path / "finance" / "etl" / "Project.params").exists()
+    manifest = json.loads((tmp_path / "_packages_manifest.json").read_text())
+    assert manifest["project_files"] == []
+
+
 def test_ssisdb_missing_member_is_warned_not_fatal(monkeypatch, tmp_path):
     ispac = _make_ispac({"Extract.dtsx": b"<e/>"})
     enumerate_rows = [
