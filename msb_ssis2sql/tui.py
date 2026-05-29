@@ -1,9 +1,15 @@
-"""Textual control-panel TUI for msb_ssis2sql — launches justfile recipes."""
+"""Textual control-panel TUI for msb_ssis2sql.
+
+Self-contained: it runs a built-in registry of conversion and validation
+commands built from the current Python interpreter, so it needs neither a
+``justfile`` nor the ``just`` binary — both of which are typically absent on
+Windows, where depending on them crashed TUI/web start-up.
+"""
 from __future__ import annotations
 
-import json
 import re
 import subprocess
+import sys
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,7 +31,7 @@ _VALIDATION_LAYERS = (
 )
 
 _MIGRATION_RECIPES = frozenset(
-    {"migrate-file", "convert-samples", "migrate-directory", "demo", "inspect"}
+    {"migrate-file", "migrate-directory", "demo", "inspect"}
 )
 # Recipes that take a single .dtsx file path and stream output to stdout/the Log
 # pane (DtsxPickerPane). 'inspect' lives here; 'migrate-file' has its own pane
@@ -49,39 +55,116 @@ _TABS = (("migration", "Migration"),
 
 @dataclass
 class Recipe:
-    """A justfile recipe with its name, doc comment, and parameter list."""
+    """A runnable command with its name, doc text, and parameter-name list."""
 
     name: str
     doc: str = ""
     params: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class _RecipeSpec:
+    """A built-in recipe: doc, parameter names, and the argv prefix to run."""
+
+    doc: str
+    params: tuple[str, ...]
+    command: tuple[str, ...]
+
+
+# The current interpreter — already inside the project venv when the TUI runs,
+# so `-m msb_ssis2sql` / `-m pytest` resolve without `uv`, `just`, or a shell.
+_PY = sys.executable
+
+# Built-in recipe registry. Replaces the old `just`/justfile dependency so the
+# TUI runs identically on Windows, macOS and Linux. Commands are argv lists run
+# WITHOUT a shell, so caller-supplied paths can never be interpreted as shell
+# syntax (no command injection).
+_REGISTRY: dict[str, _RecipeSpec] = {
+    "demo": _RecipeSpec(
+        "Convert the bundled example package to T-SQL.",
+        (),
+        (_PY, "-m", "msb_ssis2sql", "convert", "examples/sales_etl.dtsx"),
+    ),
+    "inspect": _RecipeSpec(
+        "Print the parsed component graph of a .dtsx file.",
+        ("FILE",),
+        (_PY, "-m", "msb_ssis2sql", "inspect"),
+    ),
+    "migrate-file": _RecipeSpec(
+        "Convert one .dtsx file to T-SQL and write it to OUTFILE.",
+        ("FILE", "OUTFILE"),
+        (_PY, "-m", "msb_ssis2sql", "convert"),
+    ),
+    "migrate-directory": _RecipeSpec(
+        "Recursively convert a directory tree of .dtsx into mirrored .sql files.",
+        ("INPUT", "OUTPUT"),
+        (_PY, "-m", "msb_ssis2sql", "convert-tree"),
+    ),
+    "validate-static": _RecipeSpec(
+        "Static structural checks — no SQL Server required.",
+        (),
+        (_PY, "-m", "pytest", "validation/test_static.py"),
+    ),
+    "validate-unit": _RecipeSpec(
+        "Validation-framework unit tests — no SQL Server required.",
+        (),
+        (_PY, "-m", "pytest", "validation/tests"),
+    ),
+    "validate": _RecipeSpec(
+        "Full differential validation — needs SQL Server.",
+        (),
+        (_PY, "-m", "pytest", "validation/", "-m", "validation"),
+    ),
+    "validate-cov": _RecipeSpec(
+        "Validation unit tests with a coverage report.",
+        (),
+        (_PY, "-m", "pytest", "validation/tests", "--cov=validation",
+         "--cov-report=term-missing"),
+    ),
+}
+
+_ROOT_MARKERS = ("pyproject.toml", "justfile")
+
+
 def find_repo_root(start: Path) -> Path:
-    """Return the nearest ancestor of ``start`` (inclusive) containing a justfile."""
+    """Nearest ancestor of ``start`` (inclusive) containing a project-root marker.
+
+    ``pyproject.toml`` is checked first so the TUI works on Windows checkouts
+    that ship no ``justfile``. Raises ``FileNotFoundError`` only when no marker
+    exists anywhere up the tree.
+    """
     for d in (start, *start.parents):
-        if (d / "justfile").is_file():
+        if any((d / m).is_file() for m in _ROOT_MARKERS):
             return d
-    raise FileNotFoundError(f"no justfile found above {start}")
+    raise FileNotFoundError(f"no project root (pyproject.toml/justfile) above {start}")
 
 
-def discover_recipes(repo_root: Path) -> list[Recipe]:
-    """Parse ``just --dump --dump-format json`` into a sorted list of Recipe objects."""
-    proc = subprocess.run(
-        ["just", "--dump", "--dump-format", "json"],
-        cwd=repo_root, capture_output=True, text=True, check=True,
-    )
-    data = json.loads(proc.stdout)
-    recipes: list[Recipe] = []
-    for name, meta in data["recipes"].items():
-        if meta.get("private") or name in _EXCLUDED_RECIPES:
-            continue
-        recipes.append(
-            Recipe(
-                name=name,
-                doc=meta.get("doc") or "",
-                params=[p["name"] for p in meta.get("parameters", [])],
-            )
-        )
+def build_command(recipe: str, args: list[str]) -> list[str] | None:
+    """Return the argv for *recipe* with *args*, or ``None`` if unknown.
+
+    ``migrate-file`` maps its ``(FILE, OUTFILE)`` pair onto
+    ``convert FILE -o OUTFILE``; every other recipe appends ``args`` verbatim.
+    """
+    spec = _REGISTRY.get(recipe)
+    if spec is None:
+        return None
+    if recipe == "migrate-file":
+        file, outfile = (list(args) + ["", ""])[:2]
+        return [*spec.command, file, "-o", outfile]
+    return [*spec.command, *args]
+
+
+def discover_recipes(repo_root: Path | None = None) -> list[Recipe]:
+    """Return the built-in recipe list, sorted, excluding interactive recipes.
+
+    No ``justfile`` or ``just`` binary is consulted — the TUI ships its own
+    registry. ``repo_root`` is accepted for backwards compatibility but unused.
+    """
+    recipes = [
+        Recipe(name=name, doc=spec.doc, params=list(spec.params))
+        for name, spec in _REGISTRY.items()
+        if name not in _EXCLUDED_RECIPES
+    ]
     return sorted(recipes, key=lambda r: r.name)
 
 
@@ -611,7 +694,12 @@ class Ssis2SqlTUI(App):
     @work(thread=True, exclusive=True, group="recipe-run")
     def _run_recipe(self, recipe: str, args: list[str], log: Log) -> int:
         worker = get_current_worker()
-        cmd = ["just", recipe, *args]
+        cmd = build_command(recipe, args)
+        if cmd is None:
+            self.call_from_thread(
+                log.write_line, f"error: no built-in command for recipe {recipe!r}"
+            )
+            return 1
         self.call_from_thread(log.write_line, f"$ {' '.join(cmd)}")
         proc = subprocess.Popen(
             cmd, cwd=self._repo_root,
@@ -631,7 +719,12 @@ class Ssis2SqlTUI(App):
     @work(thread=True, exclusive=True, group="recipe-run")
     def _run_validation(self, recipe: str, log: Log, summary: Static) -> int:
         worker = get_current_worker()
-        cmd = ["just", recipe]
+        cmd = build_command(recipe, [])
+        if cmd is None:
+            self.call_from_thread(
+                log.write_line, f"error: no built-in command for recipe {recipe!r}"
+            )
+            return 1
         self.call_from_thread(log.write_line, f"$ {' '.join(cmd)}")
         proc = subprocess.Popen(
             cmd, cwd=self._repo_root,
