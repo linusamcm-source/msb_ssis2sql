@@ -1,6 +1,6 @@
 # Plan — project-deployment-model awareness (`@Project.manifest`, `Project.params`, `*.conmgr`)
 
-> **Status: proposed.** Companion to `docs/plan-extract-packages-pipeline.md`.
+> **Status: implemented** (phases 1–6). Companion to `docs/plan-extract-packages-pipeline.md`.
 > That work extracts each catalog package's `.dtsx` and discards the rest of the
 > `.ispac`. This plan parses the *project-scoped* files an `.ispac` carries and
 > threads them through conversion, so packages that reference project parameters

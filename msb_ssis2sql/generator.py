@@ -108,6 +108,15 @@ def convert_package(
     warnings: list[str] = []
     referenced_vars: set[tuple[str, str]] = set()
 
+    if project is not None and project.is_password_encrypted:
+        enc = (
+            f"project {project.name!r} protection level "
+            f"{project.protection_level!r}: parameter values and sensitive "
+            f"connection-string parts are encrypted and were not exported"
+        )
+        warnings.append(enc)
+        logger.warning(enc)
+
     # D-5: suppress the no-DFT warning iff orchestration_body is non-empty
     # (the orch-only collapse explicitly replaces the empty body with EXECs).
     if not package.data_flows and not options.orchestration_body:

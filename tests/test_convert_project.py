@@ -54,6 +54,15 @@ def test_convert_tree_threads_project_context(tmp_path):
     assert "DECLARE @BatchSize INT = 5000;" in dims_sql
 
 
+def test_password_encrypted_project_warns(tmp_path):
+    from msb_ssis2sql.generator import convert_package
+    from msb_ssis2sql.model import Package, Project
+
+    project = Project(name="Locked", protection_level="EncryptAllWithPassword")
+    result = convert_package(Package(name="p"), project=project)
+    assert any("encrypted" in w and "EncryptAllWithPassword" in w for w in result.warnings)
+
+
 def test_convert_tree_without_manifest_leaves_param_unresolved(tmp_path):
     src = tmp_path / "src"
     src.mkdir()

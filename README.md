@@ -106,7 +106,7 @@ The CLI has five sub-commands:
 | `inspect` | print the parsed component graph and exit |
 | `convert-tree IN OUT` | recursively convert a directory of `.dtsx` into a mirrored `.sql` tree (see [How it works](#how-it-works)); `--no-orchestrator` opts out of the collapsed main proc |
 | `extract-agent-jobs` | read `msdb.dbo.sysjobs*` over ODBC and emit one YAML file per SQL Server Agent job; `--proc-manifest` rewrites SSIS steps to call the converted procedures |
-| `extract-packages` | connect to a SQL Server store (Windows auth) and write every stored SSIS package to disk as `.dtsx`; auto-detects the SSISDB catalog, falling back to the legacy `msdb` store. See [Extracting packages from SQL Server](#extracting-packages-from-sql-server) |
+| `extract-packages` | connect to a SQL Server store (Windows auth) and write every stored SSIS package to disk as `.dtsx`; auto-detects the SSISDB catalog, falling back to the legacy `msdb` store; `--expanded` also writes the project files. See [Extracting packages from SQL Server](#extracting-packages-from-sql-server) |
 
 `-v` / `-vv` raise the log level on any command (see [Logging](#logging)).
 
@@ -206,6 +206,49 @@ installed once. An optional `convertToSql` parameter chains the extracted
 packages straight into `convert-tree`. See
 `docs/plan-extract-packages-pipeline.md` for the full design and the read-only
 SQL grants required.
+
+## Project-deployment model (expanded `.ispac`)
+
+A project-deployment SSIS project (the unzipped contents of an `.ispac`) keeps
+parameters and shared connection managers *outside* the individual packages:
+
+```
+MyProject/
+  @Project.manifest    protection level, version, package list
+  Project.params       $Project::… parameters (typed, with defaults)
+  Staging.conmgr        shared (project) connection managers
+  LoadSales.dtsx        packages that reference the above
+```
+
+`msb_ssis2sql` reads these and threads them through conversion, so a package
+that references `$Project::Param` or a project-scoped connection converts with
+real values instead of empty placeholders:
+
+```python
+from msb_ssis2sql import convert_project
+results = convert_project("MyProject/")        # {package_stem: ConversionResult}
+```
+
+`convert-tree` auto-detects an expanded project (any directory containing
+`@Project.manifest`) and applies its context to every package in that
+directory — no flag needed. What gets used:
+
+- **Project & package parameters** → typed `DECLARE`s with their real default
+  values (`$Project::BatchSize` → `DECLARE @BatchSize INT = 5000;`). Package
+  parameters override project parameters of the same name. **Sensitive**
+  parameters (and any project under an `Encrypt*WithPassword` protection level)
+  are emitted as `NULL` with a warning — their values are not in the export.
+- **Project connection managers** → a package referencing a shared connection
+  resolves it (package scope first, then project scope). With the opt-in
+  `ConvertOptions(qualify_from_connection=True)`, source/destination tables are
+  prefixed with the database from the connection string
+  (`[db].[schema].[table]`); off by default.
+
+To get a faithful expanded project out of an SSISDB catalog in one step, use
+`extract-packages --expanded`, which writes `@Project.manifest`,
+`Project.params` and `*.conmgr` alongside the `.dtsx` — making extract →
+`convert-tree` a lossless round-trip. See
+`docs/plan-project-deployment-model.md` for the full design.
 
 ## How it works
 
@@ -337,6 +380,7 @@ Import the module from `transforms/__init__.py` so it self-registers.
 ```
 msb_ssis2sql/
   parser.py            .dtsx XML  -> intermediate representation
+  project.py           expanded .ispac (@Project.manifest / .params / .conmgr) -> Project
   model.py             the IR dataclasses
   relation.py          the Relation - a named result set that becomes a CTE
   component_types.py   componentClassID -> ComponentKind
