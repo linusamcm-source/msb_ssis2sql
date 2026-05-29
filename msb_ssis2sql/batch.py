@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
+import tempfile
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -10,8 +12,8 @@ from pathlib import Path
 from ._naming import resolve_collisions, resolve_procedure_name, sanitise
 from .control_graph import ControlFlowGraph
 from .errors import GraphError
-from .generator import ConvertOptions, convert_file, convert_package
-from .model import Package
+from .generator import ConvertOptions, convert_package
+from .model import ExecutePackageTask, Package
 from .observability import logged, logger
 from .parser import parse_file
 from .project import load_project
@@ -21,6 +23,58 @@ from .util import _posix, decode_package_name
 def _decoded_stem(path: Path) -> str:
     """Disk-file stem with %xx percent-escapes decoded — matches EPT refs."""
     return decode_package_name(path.stem)
+
+
+def _ept_reference(ept: ExecutePackageTask) -> tuple[str, str]:
+    """Return ``(raw_reference, basename)`` for an ExecutePackageTask.
+
+    Prefers ``PackageName``; falls back to ``PackagePath`` so a child referenced
+    by a *path* — which may contain spaces and ``\\`` or ``/`` separators, and may
+    omit the ``.dtsx`` extension — still resolves. The basename is the final path
+    segment, used to match against the directory's files.
+    """
+    raw = (ept.package_name or ept.package_path or "").strip()
+    basename = re.split(r"[\\/]", raw)[-1].strip()
+    return raw, basename
+
+
+def _normalize_component(name: str) -> str:
+    """Decode ``%xx`` escapes then collapse whitespace runs to single underscores."""
+    return re.sub(r"\s+", "_", decode_package_name(name))
+
+
+def _stage_normalized_tree(input_root: Path) -> tuple[Path, dict[Path, Path]]:
+    """Copy the input tree into a temp dir with whitespace/%20-free path names.
+
+    Every path component (directories and filenames) has ``%xx`` escapes decoded
+    and whitespace collapsed to underscores, so the files are *read* from clean
+    paths. The original directory is never modified. Distinct originals that
+    normalise to the same name are de-duplicated (``_2`` / ``_3``) so no file is
+    clobbered. Returns ``(staged_root, {original_path: staged_path})``.
+
+    All keying, collision resolution, proc naming and EPT matching stay on the
+    original names (via the returned map); only the physical reads use the copy.
+    """
+    staged_root = Path(tempfile.mkdtemp(prefix="msb_ssis2sql_input_"))
+    mapping: dict[Path, Path] = {}
+    used: set[str] = set()
+    for src in sorted(input_root.rglob("*")):
+        if src.is_dir():
+            continue
+        rel = src.relative_to(input_root)
+        if _SKIP_DIRS.intersection(rel.parts):
+            continue
+        staged = staged_root.joinpath(*[_normalize_component(p) for p in rel.parts])
+        if str(staged).lower() in used:
+            stem, suffix, n = staged.stem, staged.suffix, 2
+            while str(staged.with_name(f"{stem}_{n}{suffix}")).lower() in used:
+                n += 1
+            staged = staged.with_name(f"{stem}_{n}{suffix}")
+        used.add(str(staged).lower())
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, staged)
+        mapping[src] = staged
+    return staged_root, mapping
 
 
 def _clean_sql_stems(dir_files: list[Path]) -> dict[str, str]:
@@ -93,6 +147,24 @@ def convert_tree(
     if not input_root.is_dir():
         raise NotADirectoryError(f"input is not a directory: {input_root}")
 
+    # Stage a normalised copy so every file is read from a path with no blank
+    # spaces or '%20' in its name; the original directory is left untouched.
+    staged_root, staged_map = _stage_normalized_tree(input_root)
+    try:
+        return _convert_tree_impl(
+            input_root, output_root, options, no_orchestrator, staged_map
+        )
+    finally:
+        shutil.rmtree(staged_root, ignore_errors=True)
+
+
+def _convert_tree_impl(
+    input_root: Path,
+    output_root: Path,
+    options: ConvertOptions | None,
+    no_orchestrator: bool,
+    staged_map: dict[Path, Path],
+) -> BatchResult:
     base_options = options or ConvertOptions()
     result = BatchResult()
 
@@ -177,7 +249,8 @@ def convert_tree(
         main_parse_error: str | None = None
         if main_file is not None:
             try:
-                cached_main_pkg = parse_file(main_file)
+                cached_main_pkg = parse_file(staged_map.get(main_file, main_file))
+                cached_main_pkg.source_path = str(main_file)
             except Exception as exc:  # noqa: BLE001
                 main_parse_error = f"main.dtsx parse failed: {exc!r}"
                 main_dst = _sql_dest(main_file)
@@ -193,7 +266,7 @@ def convert_tree(
         precomputed_exec_lines: tuple[list[str], list[tuple[str, str]]] | None = None
         if main_file is not None and cached_main_pkg is not None:
             precomputed_exec_lines = _build_ordered_exec_lines(
-                cached_main_pkg, dir_files, main_file, proc_name_by_stem,
+                cached_main_pkg, dir_files, main_file, proc_name_by_stem, staged_map,
             )
 
         # T-2: determine collapse. Requires cached_main_pkg AND the full
@@ -255,7 +328,11 @@ def convert_tree(
                     assert cached_main_pkg is not None
                     conversion = convert_package(cached_main_pkg, wrap_opts, project=project)
                 else:
-                    conversion = convert_file(src, wrap_opts, project=project)
+                    # Read from the normalised staged copy, but keep the header's
+                    # source path pointing at the original file.
+                    pkg = parse_file(staged_map.get(src, src))
+                    pkg.source_path = str(src)
+                    conversion = convert_package(pkg, wrap_opts, project=project)
                 dst.write_text(conversion.sql, encoding="utf-8")
                 outcome = FileOutcome(
                     src, dst, ok=True,
@@ -360,6 +437,7 @@ def _build_ordered_exec_lines(
     dir_files: list[Path],
     main_file: Path,
     proc_name_by_stem: dict[str, str],
+    staged_map: dict[Path, Path] | None = None,
 ) -> tuple[list[str], list[tuple[str, str]]]:
     """Build the topologically ordered EXEC body for the orchestrator path.
 
@@ -388,12 +466,14 @@ def _build_ordered_exec_lines(
     main_src = str(main_file)
     epts = main_pkg.execute_package_tasks
 
-    # Nested-EPT child scan: warn but don't block.
+    # Nested-EPT child scan: warn but don't block. Read from the staged copy
+    # when available so every parse uses a whitespace/%20-free path.
+    staged_map = staged_map or {}
     for src in dir_files:
         if src == main_file:
             continue
         try:
-            child_pkg = parse_file(src)
+            child_pkg = parse_file(staged_map.get(src, src))
         except Exception:  # noqa: BLE001 - child parse failure surfaces via convert pass
             continue
         if child_pkg.execute_package_tasks:
@@ -424,32 +504,34 @@ def _build_ordered_exec_lines(
         warnings.append((main_src, cycle_warning))
         ordered_epts = epts  # declaration order fallback
 
-    # Dangling / outside-dir scan. Compare against decoded disk names so
-    # '%20'-encoded files match decoded EPT refs.
+    # Dangling / outside-dir scan. Match the reference *basename* against decoded
+    # disk names so '%20'-encoded, space-bearing, or path-style EPT refs resolve;
+    # the comparison is extension-insensitive because PackagePath may omit '.dtsx'.
     dir_file_names = {decode_package_name(f.name).lower() for f in dir_files}
+    dir_stems = {_decoded_stem(f).lower() for f in dir_files}
     for ept in ordered_epts:
-        pkg_name = ept.package_name
-        if not pkg_name:
+        raw, basename = _ept_reference(ept)
+        if not basename:
             continue
-        if ".." in pkg_name or pkg_name.startswith("/"):
+        if ".." in raw or raw.startswith("/"):
             warnings.append(
-                (main_src, f"outside-dir child reference rejected: {pkg_name!r}")
+                (main_src, f"outside-dir child reference rejected: {raw!r}")
             )
             continue
-        if pkg_name.lower() not in dir_file_names:
+        if basename.lower() not in dir_file_names and Path(basename).stem.lower() not in dir_stems:
             warnings.append(
-                (main_src, f"missing child: {pkg_name!r} referenced by EPT but not found in directory")
+                (main_src, f"missing child: {raw!r} referenced by EPT but not found in directory")
             )
 
     # EXEC line formatting (raw, unindented).
     exec_lines: list[str] = []
     for ept in ordered_epts:
-        pkg_name = ept.package_name
-        if not pkg_name:
+        raw, basename = _ept_reference(ept)
+        if not basename:
             continue
-        if ".." in pkg_name or pkg_name.startswith("/"):
+        if ".." in raw or raw.startswith("/"):
             continue
-        stem = Path(pkg_name).stem
+        stem = Path(basename).stem
         if stem in proc_name_by_stem:
             exec_lines.append(f"EXEC {proc_name_by_stem[stem]};")
 

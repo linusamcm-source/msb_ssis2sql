@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     except ImportError as exc:
         print(
             "msb_ssis2sql-web: textual-serve is not installed. "
-            "Run 'just install' (or 'uv sync').",
+            "Run 'uv sync' (or 'pip install textual-serve').",
             file=sys.stderr,
         )
         raise SystemExit(2) from exc
