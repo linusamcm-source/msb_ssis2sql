@@ -209,12 +209,17 @@ def test_justfile_install_web_recipe_removed() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 10. msb_ssis2sql/web.py error message migrates to `just install`
+# 10. msb_ssis2sql/web.py error message uses a cross-platform install hint
 # ---------------------------------------------------------------------------
-def test_web_py_error_message_uses_just_install() -> None:
+def test_web_py_error_message_uses_uv_sync() -> None:
     text = WEB_PY.read_text()
-    assert "just install" in text, (
-        "msb_ssis2sql/web.py must mention `just install` in the import-error hint"
+    # The hint must point at a cross-platform command, not `just` — Windows has
+    # no justfile / just binary.
+    assert "uv sync" in text, (
+        "msb_ssis2sql/web.py must mention `uv sync` in the import-error hint"
+    )
+    assert "just install" not in text, (
+        "msb_ssis2sql/web.py must not require `just` (absent on Windows)"
     )
     assert "install-web" not in text, (
         "msb_ssis2sql/web.py must not reference the removed `install-web` recipe"

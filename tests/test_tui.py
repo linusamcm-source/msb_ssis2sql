@@ -9,28 +9,24 @@ layout, directory-selection fills Input, re-root on Enter, Convert-tree validati
 (empty/invalid path → error in Log, no worker launch), DtsxTree.filter_paths
 keeps only dirs and .dtsx files, and ct-* file-click is a no-op.
 
-Most tests are hermetic: subprocess.run / subprocess.Popen are monkeypatched so no
-real just build runs. The exception is the SEC-3 regression test
-(test_justfile_convert_tree_single_quotes_block_injection), which intentionally
-invokes the real just binary to verify the recipes safely quote their arguments.
+All tests are hermetic: the TUI runs built-in argv commands via the current
+interpreter (no `just`, no shell), and subprocess.Popen is monkeypatched so no
+real subprocess runs.
 """
 from __future__ import annotations
 
-import json
 import subprocess
-from pathlib import Path
+import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
-# msb_ssis2sql/tui.py exists (Story 2, commit 3bfe4a9). Story 3 tests fail individually
-# because picker pane widgets (ct-input-tree, file-convert, etc.) and DtsxTree are
-# not yet added to tui.py — that is the Story 3 GREEN phase.
 from msb_ssis2sql.tui import (
     Recipe,
     Ssis2SqlTUI,
     _MSSQL_KEYS,
+    build_command,
     discover_recipes,
     find_repo_root,
     parse_pytest_summary,
@@ -39,101 +35,7 @@ from msb_ssis2sql.tui import (
 )
 
 # ---------------------------------------------------------------------------
-# Shared fixture: captured just --dump --dump-format json payload.
-# Contains opus, tui, a private recipe, and migrate-directory so the tests can
-# verify the correct filtering behaviour.
-# ---------------------------------------------------------------------------
-
-_JUST_DUMP = json.dumps({
-    "recipes": {
-        "_private_helper": {
-            "name": "_private_helper",
-            "doc": None,
-            "private": True,
-            "parameters": [],
-        },
-        "clean": {
-            "name": "clean",
-            "doc": "Remove the venv and caches.",
-            "private": False,
-            "parameters": [],
-        },
-        "migrate-file": {
-            "name": "migrate-file",
-            "doc": "Convert a .dtsx file to T-SQL.",
-            "private": False,
-            "parameters": [{"name": "FILE", "kind": "singular"}],
-        },
-        "convert-samples": {
-            "name": "convert-samples",
-            "doc": "Convert sample packages.",
-            "private": False,
-            "parameters": [],
-        },
-        "migrate-directory": {
-            "name": "migrate-directory",
-            "doc": "Recursively convert a directory.",
-            "private": False,
-            "parameters": [
-                {"name": "INPUT", "kind": "singular"},
-                {"name": "OUTPUT", "kind": "singular"},
-            ],
-        },
-        "cov": {
-            "name": "cov",
-            "doc": "Run the test suite with coverage.",
-            "private": False,
-            "parameters": [],
-        },
-        "demo": {
-            "name": "demo",
-            "doc": "Convert the bundled example.",
-            "private": False,
-            "parameters": [],
-        },
-        "inspect": {
-            "name": "inspect",
-            "doc": "Print the parsed component graph.",
-            "private": False,
-            "parameters": [{"name": "FILE", "kind": "singular"}],
-        },
-        "install": {
-            "name": "install",
-            "doc": "Create the venv and install deps.",
-            "private": False,
-            "parameters": [],
-        },
-        "opus": {
-            "name": "opus",
-            "doc": "Run Claude in max-effort mode.",
-            "private": False,
-            "parameters": [],
-        },
-        "test": {
-            "name": "test",
-            "doc": "Run the test suite.",
-            "private": False,
-            "parameters": [],
-        },
-        "tui": {
-            "name": "tui",
-            "doc": "Launch the Textual TUI.",
-            "private": False,
-            "parameters": [],
-        },
-    }
-})
-
-
-@pytest.fixture
-def fake_subprocess_run(monkeypatch):
-    """Monkeypatch subprocess.run so discover_recipes never calls real just."""
-    fake = SimpleNamespace(stdout=_JUST_DUMP, returncode=0)
-    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: fake)
-
-
-# ---------------------------------------------------------------------------
-# AC 7 — find_repo_root: nearest ancestor containing a justfile.
+# find_repo_root: nearest ancestor with a project-root marker (pyproject/justfile).
 # ---------------------------------------------------------------------------
 
 def test_find_repo_root_returns_nearest_justfile_ancestor(tmp_path):
@@ -146,15 +48,24 @@ def test_find_repo_root_returns_nearest_justfile_ancestor(tmp_path):
 
 
 def test_find_repo_root_accepts_the_root_itself(tmp_path):
-    """find_repo_root returns start when start itself contains the justfile."""
+    """find_repo_root returns start when start itself contains the marker."""
     (tmp_path / "justfile").write_text("test:\n    pytest\n", encoding="utf-8")
 
     assert find_repo_root(tmp_path) == tmp_path
 
 
-def test_find_repo_root_raises_when_no_ancestor_has_justfile(tmp_path):
-    """find_repo_root raises FileNotFoundError when no ancestor has a justfile."""
-    orphan = tmp_path / "no" / "justfile" / "here"
+def test_find_repo_root_finds_pyproject_when_no_justfile(tmp_path):
+    """On Windows checkouts there is no justfile — pyproject.toml is the marker."""
+    (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+    subdir = tmp_path / "pkg"
+    subdir.mkdir()
+
+    assert find_repo_root(subdir) == tmp_path
+
+
+def test_find_repo_root_raises_when_no_marker(tmp_path):
+    """find_repo_root raises FileNotFoundError when no marker exists above start."""
+    orphan = tmp_path / "no" / "markers" / "here"
     orphan.mkdir(parents=True)
 
     with pytest.raises(FileNotFoundError):
@@ -162,63 +73,97 @@ def test_find_repo_root_raises_when_no_ancestor_has_justfile(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# AC 8 — discover_recipes: sorted Recipe list from just --dump output.
+# discover_recipes: the built-in registry (no justfile, no `just` binary).
 # ---------------------------------------------------------------------------
 
-def test_discover_recipes_returns_nonempty_list(tmp_path, fake_subprocess_run):
-    """discover_recipes returns at least one Recipe for a normal justfile."""
-    assert len(discover_recipes(tmp_path)) > 0
+def test_discover_recipes_returns_nonempty_list():
+    """discover_recipes returns the built-in recipe registry."""
+    assert len(discover_recipes()) > 0
 
 
-def test_discover_recipes_result_is_sorted_by_name(tmp_path, fake_subprocess_run):
-    """Recipes are returned alphabetically — the plan requires sorted output."""
-    names = [r.name for r in discover_recipes(tmp_path)]
+def test_discover_recipes_result_is_sorted_by_name():
+    """Recipes are returned alphabetically."""
+    names = [r.name for r in discover_recipes()]
     assert names == sorted(names)
 
 
-def test_discover_recipes_excludes_opus(tmp_path, fake_subprocess_run):
-    """opus is excluded — it launches an interactive Claude session."""
-    names = [r.name for r in discover_recipes(tmp_path)]
-    assert "opus" not in names
+def test_discover_recipes_excludes_opus_and_tui():
+    """Interactive recipes are never in the registry / are filtered out."""
+    names = [r.name for r in discover_recipes()]
+    assert "opus" not in names and "tui" not in names
 
 
-def test_discover_recipes_excludes_tui(tmp_path, fake_subprocess_run):
-    """tui is excluded — cannot launch the TUI from inside itself."""
-    names = [r.name for r in discover_recipes(tmp_path)]
-    assert "tui" not in names
+def test_discover_recipes_includes_core_recipes():
+    """The migration + validation recipes the TUI drives are all present."""
+    names = {r.name for r in discover_recipes()}
+    assert {"migrate-file", "migrate-directory", "demo", "inspect",
+            "validate", "validate-static", "validate-unit"} <= names
 
 
-def test_discover_recipes_excludes_private_recipes(tmp_path, fake_subprocess_run):
-    """Recipes marked private=True must not appear in the sidebar."""
-    names = [r.name for r in discover_recipes(tmp_path)]
-    assert "_private_helper" not in names
+def test_discover_recipes_params_for_migrate_file():
+    """Recipe.params for 'migrate-file' is ['FILE', 'OUTFILE']."""
+    convert = next(r for r in discover_recipes() if r.name == "migrate-file")
+    assert convert.params == ["FILE", "OUTFILE"]
 
 
-def test_discover_recipes_includes_convert_tree(tmp_path, fake_subprocess_run):
-    """migrate-directory (Story 1) is present in the recipe list."""
-    names = [r.name for r in discover_recipes(tmp_path)]
-    assert "migrate-directory" in names
-
-
-def test_discover_recipes_params_for_convert(tmp_path, fake_subprocess_run):
-    """Recipe.params for 'migrate-file' is exactly ['FILE']."""
-    recipes = discover_recipes(tmp_path)
-    convert = next(r for r in recipes if r.name == "migrate-file")
-    assert convert.params == ["FILE"]
-
-
-def test_discover_recipes_params_for_convert_tree(tmp_path, fake_subprocess_run):
+def test_discover_recipes_params_for_migrate_directory():
     """Recipe.params for 'migrate-directory' is ['INPUT', 'OUTPUT']."""
-    recipes = discover_recipes(tmp_path)
-    ct = next(r for r in recipes if r.name == "migrate-directory")
+    ct = next(r for r in discover_recipes() if r.name == "migrate-directory")
     assert ct.params == ["INPUT", "OUTPUT"]
 
 
-def test_discover_recipes_doc_is_populated(tmp_path, fake_subprocess_run):
-    """Recipe.doc is set from the just dump — not left blank."""
-    recipes = discover_recipes(tmp_path)
-    clean = next(r for r in recipes if r.name == "clean")
-    assert clean.doc == "Remove the venv and caches."
+def test_discover_recipes_doc_is_populated():
+    """Every built-in recipe has non-empty doc text."""
+    assert all(r.doc for r in discover_recipes())
+
+
+def test_discover_recipes_needs_no_just_binary(monkeypatch):
+    """Discovery must not shell out — break subprocess to prove it never runs `just`."""
+    def _boom(*a, **kw):
+        raise AssertionError("discover_recipes must not call subprocess")
+
+    monkeypatch.setattr(subprocess, "run", _boom)
+    monkeypatch.setattr(subprocess, "Popen", _boom)
+    assert len(discover_recipes()) > 0
+
+
+# ---------------------------------------------------------------------------
+# build_command: cross-platform argv from the current interpreter, no shell.
+# ---------------------------------------------------------------------------
+
+def test_build_command_uses_current_interpreter_not_just():
+    """Commands run via sys.executable, never the `just` binary."""
+    cmd = build_command("demo", [])
+    assert cmd[0] == sys.executable
+    assert "just" not in cmd
+    assert cmd[1:] == ["-m", "msb_ssis2sql", "convert", "examples/sales_etl.dtsx"]
+
+
+def test_build_command_migrate_directory_appends_paths():
+    cmd = build_command("migrate-directory", ["in dir", "out dir"])
+    assert cmd[:4] == [sys.executable, "-m", "msb_ssis2sql", "convert-tree"]
+    assert cmd[-2:] == ["in dir", "out dir"]
+
+
+def test_build_command_migrate_file_maps_to_convert_dash_o():
+    cmd = build_command("migrate-file", ["pkg.dtsx", "out.sql"])
+    assert cmd == [sys.executable, "-m", "msb_ssis2sql", "convert", "pkg.dtsx", "-o", "out.sql"]
+
+
+def test_build_command_unknown_recipe_returns_none():
+    assert build_command("no-such-recipe", []) is None
+
+
+def test_build_command_is_injection_safe():
+    """A shell-substitution payload is passed as one literal argv element.
+
+    Because commands run without a shell (argv list, no shell=True), a path like
+    '$(touch sentinel)' can never be expanded — it stays a single string arg.
+    """
+    payload = "/nonexistent/$(touch /tmp/should_not_exist)"
+    cmd = build_command("migrate-directory", [payload, "out"])
+    assert payload in cmd                      # passed verbatim as one element
+    assert all("touch" not in part for part in cmd if part != payload)
 
 
 def test_recipe_dataclass_has_sensible_defaults():
@@ -368,7 +313,7 @@ async def test_run_button_writes_to_log_and_exits(monkeypatch, tmp_path):
 
         log = app.query_one("#log-demo", Log)
         all_lines = "\n".join(log.lines)
-        # The worker writes "$ just demo", then each stdout line, then "[exit 0]".
+        # The worker writes "$ <python> -m msb_ssis2sql convert ...", each stdout line, then "[exit 0]".
         assert "line one" in all_lines      # first streamed stdout line present
         assert "line two" in all_lines      # second streamed stdout line present
         assert "[exit 0]" in all_lines      # exit line written after proc.wait()
@@ -712,7 +657,7 @@ async def test_convert_tree_with_nonexistent_input_path_writes_error_to_log(
 
 
 # ---------------------------------------------------------------------------
-# AC 4 (positive path) — valid paths run just migrate-directory with both paths.
+# AC 4 (positive path) — valid paths run the convert-tree CLI with both paths.
 # ---------------------------------------------------------------------------
 
 async def test_convert_tree_with_valid_paths_runs_recipe(monkeypatch, tmp_path):
@@ -770,7 +715,8 @@ async def test_convert_tree_with_valid_paths_runs_recipe(monkeypatch, tmp_path):
         assert len(popen_calls) == 1, "Popen must be called exactly once for a valid run"
         # The command list must contain "migrate-directory" and both paths.
         cmd = popen_calls[0][0]  # first positional arg is the command sequence
-        assert "migrate-directory" in cmd, "command must include 'migrate-directory'"
+        assert "convert-tree" in cmd, "command must run the convert-tree CLI"
+        assert "just" not in cmd, "command must not depend on the `just` binary"
         assert str(input_dir) in cmd, "command must include the input path"
         assert str(output_dir) in cmd, "command must include the output path"
 
@@ -1051,7 +997,8 @@ async def test_convert_pane_run_button_calls_popen_with_file_path(
 
         assert len(popen_calls) == 1, "Popen must be called exactly once"
         cmd = popen_calls[0][0]
-        assert "migrate-file" in cmd, "command must include 'migrate-file'"
+        assert "convert" in cmd and "-o" in cmd, "migrate-file maps to convert ... -o ..."
+        assert "just" not in cmd, "command must not depend on the `just` binary"
         assert str(dtsx_file) in cmd, "command must include the dtsx file path"
         expected_outfile = str(output_dir / "sales_etl.sql")
         assert expected_outfile in cmd, (
@@ -1256,37 +1203,11 @@ async def test_convert_pane_run_with_nonexistent_file_writes_error(
 
 
 # ---------------------------------------------------------------------------
-# SEC-3 — justfile recipes must single-quote {{INPUT}}/{{OUTPUT}}/{{FILE}} to
-# prevent command injection.  This test actually runs `just` with a payload
-# containing $(touch <sentinel>) — the sentinel must NOT be created.
+# SEC-3 — command injection is structurally impossible now: the TUI runs argv
+# lists via the current interpreter (no shell, no `just`), so a payload can
+# never be expanded. Covered by test_build_command_is_injection_safe above;
+# the old test that shelled out to the real `just` binary is retired.
 # ---------------------------------------------------------------------------
-
-def test_justfile_convert_tree_single_quotes_block_injection(tmp_path):
-    """SEC-3 regression: a shell-command-substitution payload in INPUT must not
-    execute.  Passes the sentinel path via $(touch …) into just migrate-directory;
-    the sentinel file must not appear on disk after the call."""
-    import subprocess as sp
-
-    repo_root = Path(__file__).parent.parent
-    sentinel = tmp_path / "injected"
-    out_dir = tmp_path / "out"
-    out_dir.mkdir()
-
-    # The injection payload: if {{INPUT}} is double- or un-quoted the shell
-    # expands $(...) and creates the sentinel; single-quoting prevents this.
-    payload = f"/nonexistent/$(touch {sentinel})"
-
-    sp.run(
-        ["just", "migrate-directory", payload, str(out_dir)],
-        cwd=repo_root,
-        capture_output=True,
-        text=True,
-    )  # exit code is non-zero (input not found) — that's expected
-
-    assert not sentinel.exists(), (
-        "command injection succeeded: the sentinel was created, "
-        "meaning {{INPUT}} is not single-quoted in the migrate-directory recipe"
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -1315,7 +1236,7 @@ def test_parse_pytest_summary(lines, expected):
 # The three validation layers (validate-static, validate-unit, validate) move
 # into a dedicated ValidationPane; the synthetic "validation" recipe surfaces
 # it as the nav-validation sidebar button. Layer-button clicks route into
-# _run_validation, which subprocess.Popen-launches `just <recipe>` — every such
+# _run_validation, which subprocess.Popen-launches the pytest CLI — every such
 # test monkeypatches subprocess.Popen with a hermetic fake so no real just runs.
 # ---------------------------------------------------------------------------
 
@@ -1378,7 +1299,7 @@ async def test_layer_recipes_have_no_plain_sidebar_button(monkeypatch, tmp_path)
 
 async def test_static_layer_button_streams_into_log_and_summary(monkeypatch, tmp_path):
     """Plan §3.1(3): after switching to the Validation tab, clicking the Static
-    layer button streams `just validate-static` output into #log-validation,
+    layer button streams `pytest validation/test_static.py` output into #log-validation,
     ends with [exit 0], and #validation-summary renders the parsed count."""
     import msb_ssis2sql.tui as tui_mod
     from textual.widgets import Log, Static, TabbedContent
