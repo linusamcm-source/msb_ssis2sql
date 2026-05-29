@@ -1,20 +1,19 @@
-"""Tests for ``validation.config`` — RED phase.
+"""Tests for ``validation.config``.
 
-``validation/config.py`` does not exist yet; every test in this module
-will fail with ``ModuleNotFoundError`` until the engineer's Story 0
-implementation lands.  That is the correct TDD RED state.
-
-Contract under test (sprint plan, Story 0):
+Contract under test:
 - A frozen dataclass holding ODBC connection config.
-- Four connection parameters read from env vars:
-  ``MSSQL_SERVER_ADDRESS``, ``MSSQL_SERVER_PORT``,
-  ``MSSQL_SA_USERNAME``, ``MSSQL_SA_PASSWORD``.
+- Two connection parameters read from env vars: ``MSSQL_SERVER_ADDRESS``,
+  ``MSSQL_SERVER_PORT``. Authentication is Windows-only (no SA username
+  or password env vars are consulted).
 - A fixed ODBC driver name (``ODBC Driver 18 for SQL Server``).
 - A corpus root path, default float epsilon, default datetime tolerance,
-  and a ``TrustServerCertificate`` flag.
+  and a ``TrustServerCertificate`` flag (always ``True``; retained for
+  backward-compatibility of the public dataclass surface).
 - Obtaining the connection config when the ``MSSQL_*`` vars are unset
   raises a descriptive error containing ``"validation SQL Server not configured"``.
-- A helper that builds the pyodbc connection string.
+- A helper that builds the pyodbc connection string with
+  ``Trusted_Connection=yes``, ``Encrypt=yes``, and
+  ``TrustServerCertificate=yes`` clauses.
 """
 from __future__ import annotations
 
@@ -34,19 +33,17 @@ from validation.config import get_connection_string, load_config
 _REQUIRED_VARS: dict[str, str] = {
     "MSSQL_SERVER_ADDRESS": "db.example.com",
     "MSSQL_SERVER_PORT": "1433",
-    "MSSQL_SA_USERNAME": "sa",
-    "MSSQL_SA_PASSWORD": "S3cr3t!",
 }
 
 
 def _set_mssql_vars(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Inject all four MSSQL_* env vars via monkeypatch."""
+    """Inject the MSSQL_* env vars via monkeypatch."""
     for key, value in _REQUIRED_VARS.items():
         monkeypatch.setenv(key, value)
 
 
 def _unset_mssql_vars(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Remove all four MSSQL_* env vars via monkeypatch."""
+    """Remove the MSSQL_* env vars via monkeypatch."""
     for key in _REQUIRED_VARS:
         monkeypatch.delenv(key, raising=False)
 
@@ -68,20 +65,6 @@ def test_load_config_reads_server_port(monkeypatch: pytest.MonkeyPatch) -> None:
     _set_mssql_vars(monkeypatch)
     config = load_config()
     assert config.server_port == "1433"
-
-
-def test_load_config_reads_sa_username(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``ValidationConfig.sa_username`` reflects ``MSSQL_SA_USERNAME``."""
-    _set_mssql_vars(monkeypatch)
-    config = load_config()
-    assert config.sa_username == "sa"
-
-
-def test_load_config_reads_sa_password(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``ValidationConfig.sa_password`` reflects ``MSSQL_SA_PASSWORD``."""
-    _set_mssql_vars(monkeypatch)
-    config = load_config()
-    assert config.sa_password == "S3cr3t!"
 
 
 # ---------------------------------------------------------------------------
@@ -107,20 +90,25 @@ def test_connection_string_contains_server_address_and_port(
     assert "SERVER=db.example.com,1433" in connstr
 
 
-def test_connection_string_contains_uid(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Connection string includes the ``UID=`` clause."""
+def test_connection_string_contains_trusted_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Connection string includes ``Trusted_Connection=yes`` (Windows auth)."""
     _set_mssql_vars(monkeypatch)
     config = load_config()
     connstr = get_connection_string(config)
-    assert "UID=sa" in connstr
+    assert "Trusted_Connection=yes" in connstr
 
 
-def test_connection_string_contains_pwd(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Connection string includes the ``PWD=`` clause."""
+def test_connection_string_omits_uid_and_pwd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows-auth connection string carries no UID/PWD clauses."""
     _set_mssql_vars(monkeypatch)
     config = load_config()
     connstr = get_connection_string(config)
-    assert "PWD=S3cr3t!" in connstr
+    assert "UID=" not in connstr
+    assert "PWD=" not in connstr
 
 
 def test_connection_string_contains_encrypt_yes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -161,16 +149,6 @@ def test_load_config_raises_when_all_mssql_vars_are_unset(
 ) -> None:
     """All four vars unset raises an error with the expected message."""
     _unset_mssql_vars(monkeypatch)
-    with pytest.raises(Exception, match="validation SQL Server not configured"):
-        load_config()
-
-
-def test_load_config_raises_when_password_is_unset(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Unset ``MSSQL_SA_PASSWORD`` raises an error with the expected message."""
-    _set_mssql_vars(monkeypatch)
-    monkeypatch.delenv("MSSQL_SA_PASSWORD")
     with pytest.raises(Exception, match="validation SQL Server not configured"):
         load_config()
 
@@ -232,14 +210,6 @@ def test_config_is_frozen_server_address(monkeypatch: pytest.MonkeyPatch) -> Non
         config.server_address = "other.host"  # type: ignore[misc]
 
 
-def test_config_is_frozen_sa_password(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Assigning to ``sa_password`` raises ``FrozenInstanceError``."""
-    _set_mssql_vars(monkeypatch)
-    config = load_config()
-    with pytest.raises(dataclasses.FrozenInstanceError):
-        config.sa_password = "new_password"  # type: ignore[misc]
-
-
 def test_config_is_frozen_float_epsilon(monkeypatch: pytest.MonkeyPatch) -> None:
     """Assigning to ``float_epsilon`` raises ``FrozenInstanceError``."""
     _set_mssql_vars(monkeypatch)
@@ -249,21 +219,19 @@ def test_config_is_frozen_float_epsilon(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 # ---------------------------------------------------------------------------
-# 6. repr does not leak the SA password
+# 6. Config has no SA credential surface (Windows auth)
 # ---------------------------------------------------------------------------
 
 
-def test_config_repr_omits_password(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``repr(config)`` must not contain the SA password.
+def test_config_has_no_sa_credential_fields(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``ValidationConfig`` carries no ``sa_username`` / ``sa_password`` fields.
 
-    The password is a credential; leaking it into pytest/CI output or
-    tracebacks is a security issue.  ``sa_password`` uses ``field(repr=False)``
-    to suppress it from the auto-generated ``__repr__``.
-
-    The field must still return the correct value when accessed directly.
+    Authentication is Windows-only — credentials are never stored on
+    the config object, so they cannot leak through ``repr`` or pickling.
     """
     _set_mssql_vars(monkeypatch)
     config = load_config()
-    assert "S3cr3t!" not in repr(config)
-    # The attribute itself must still carry the value.
-    assert config.sa_password == "S3cr3t!"
+    assert not hasattr(config, "sa_username")
+    assert not hasattr(config, "sa_password")

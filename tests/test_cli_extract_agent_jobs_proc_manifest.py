@@ -39,8 +39,6 @@ def test_proc_manifest_invalid_json_exits_with_manifest_invalid_prefix(
     """Invalid JSON manifest → non-zero exit, stderr begins with
     ``manifest invalid:`` (AC-4)."""
     monkeypatch.setenv("MSDB_DSN", "Driver={ODBC};Server=fake;")
-    monkeypatch.setenv("MSDB_USER", "loginname")
-    monkeypatch.setenv("MSDB_PASSWORD", "irrelevant")
     # No pyodbc patch needed — the manifest load happens before any DB call.
 
     rc = _run_main_capturing_rc([
@@ -59,8 +57,6 @@ def test_proc_manifest_wrong_version_exits_with_version_unsupported_prefix(
     """Unknown ``version`` → non-zero exit, stderr begins with
     ``manifest version unsupported:`` (AC-4)."""
     monkeypatch.setenv("MSDB_DSN", "Driver={ODBC};Server=fake;")
-    monkeypatch.setenv("MSDB_USER", "loginname")
-    monkeypatch.setenv("MSDB_PASSWORD", "irrelevant")
 
     rc = _run_main_capturing_rc([
         "extract-agent-jobs",

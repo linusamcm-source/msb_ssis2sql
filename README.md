@@ -365,11 +365,16 @@ cp .env.example .env
 ```
 MSSQL_SERVER_ADDRESS=your-sql-server-host-or-ip
 MSSQL_SERVER_PORT=1433
-MSSQL_SA_USERNAME=sa
-MSSQL_SA_PASSWORD=YourStrong!Passw0rd
 ```
 
-Never commit `.env` — it is gitignored.  The static and unit layers
+Authentication is Windows-only (`Trusted_Connection=yes`). The validation
+framework and the agent extractor both run as the local Windows user — that
+account must have the required SQL Server logins and roles. The connection
+is always encrypted (`Encrypt=yes`) and server certificates are always
+trusted (`TrustServerCertificate=yes`), so dev SQL Server instances with
+self-signed certs work without extra configuration.
+
+Never commit `.env` — it is gitignored. The static and unit layers
 require no `.env` at all.
 
 ### CI

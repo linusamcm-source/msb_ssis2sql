@@ -70,7 +70,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     agent.add_argument(
         "--dsn", metavar="DSN", default=None,
-        help="ODBC DSN string (overrides MSDB_DSN env var).",
+        help="ODBC DSN string (overrides MSDB_DSN env var). Authentication "
+             "is Windows-only — Trusted_Connection=yes is appended; "
+             "USER/PASSWORD env vars are ignored.",
     )
     agent.add_argument(
         "--filter", metavar="PATTERN", default=None,
