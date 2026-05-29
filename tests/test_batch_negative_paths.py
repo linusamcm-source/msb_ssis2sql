@@ -35,19 +35,21 @@ def test_sanitiser_collision_orchestrator_exec_names_match_files(tmp_path):
     prefix segment: ``usp_main_first_sanitiser_collision_foo_bar`` etc.
 
     The orchestrator's EXEC lines and the actual .sql files emitted must
-    address the SAME proc names.
+    address the SAME proc names. Under the orch-only collapse (D-1), the
+    orchestrator body lives inside ``main.sql`` rather than a separate
+    ``*_orchestrator.sql`` file.
     """
     src = FIXTURES / "main_first_sanitiser_collision"
     out = tmp_path / "out"
     result = convert_tree(src, out)
     assert result.failed == 0, [o.error for o in result.outcomes if not o.ok]
 
-    orch_files = list(out.glob("*_orchestrator.sql"))
-    assert len(orch_files) == 1, f"expected one orchestrator file, got {[f.name for f in orch_files]}"
-    main_sql_text = orch_files[0].read_text(encoding="utf-8")
+    # D-1 collapse: EXECs land inside main.sql; no separate _orchestrator.sql.
+    assert list(out.glob("*_orchestrator.sql")) == []
+    orchestrator_text = (out / "main.sql").read_text(encoding="utf-8")
 
     # Pull every EXEC ... name from the orchestrator body.
-    exec_names = set(re.findall(r"EXEC\s+(usp_[a-z0-9_]+)\b", main_sql_text, re.IGNORECASE))
+    exec_names = set(re.findall(r"EXEC\s+(usp_[a-z0-9_]+)\b", orchestrator_text, re.IGNORECASE))
     assert len(exec_names) == 3, f"orchestrator should EXEC three child procs, got {exec_names}"
 
     # Cross-check: each EXEC name must correspond to an emitted child outcome.

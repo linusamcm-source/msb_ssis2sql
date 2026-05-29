@@ -152,6 +152,30 @@ it only reads the upstream `Relation`'s column list. The generator walks the
 graph backwards from each destination so a statement's `WITH` block contains
 exactly the CTEs that destination depends on.
 
+### Orchestrator-only `main.dtsx` collapse
+
+When `convert-tree` encounters a directory whose `main.dtsx` is a pure
+control-flow orchestrator — zero Data Flow Tasks plus one or more
+`ExecutePackageTask`s that resolve to siblings in the same directory —
+`main.sql` is emitted as a *single* stored procedure whose body is the
+topologically ordered `EXEC` sequence. No separate `*_orchestrator.sql` file
+is produced, and the canonical entry point keeps the `usp_<main>` name.
+Mixed-mode mains (DFTs + EPTs), dangling-only EPTs, and the `--no-orchestrator`
+CLI flag all fall back to the legacy dual-file output (`main.sql` body + a
+distinct `*_orchestrator.sql`). See `docs/plan-final-orch-only-main.md` for
+the full decision matrix.
+
+### Agent-step rewriting via `_proc_manifest.json`
+
+`convert-tree` writes a deterministic `_proc_manifest.json` alongside
+`_batch_warnings.log`, mapping each converted `.dtsx` to its T-SQL procedure
+name. `extract-agent-jobs --proc-manifest <path>` consumes that manifest and
+rewrites `msdb.dbo.sysjobsteps` rows whose `subsystem = SSIS` so the emitted
+YAML calls the new procedure (`subsystem: TSQL`, `command: EXEC <proc>;`).
+Unresolved, unparseable, or ambiguous steps are passed through verbatim with
+an entry in `<out>/_agent_warnings.log`. See
+`docs/plan-final-agent-step-procs.md` for the full decision table.
+
 ## Supported components
 
 | SSIS component | T-SQL translation |

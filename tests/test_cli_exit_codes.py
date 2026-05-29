@@ -67,9 +67,16 @@ def test_no_orchestrator_suppresses_main_proc(tmp_path):
 
 
 def test_no_orchestrator_default_is_off(tmp_path):
-    """Without --no-orchestrator (default), the main orchestrator IS emitted as a distinct file."""
+    """Without --no-orchestrator (default), the main orchestrator IS emitted
+    as a distinct file when main carries DFTs alongside EPTs (D-2: dual-mode
+    main preserves dual-file output).
+
+    Retargeted from ``main_first/`` (now collapses under D-1) to
+    ``main_first_main_with_dataflow/`` (mixed DFT+EPT, unchanged by D-2).
+    """
+    dual_mode_fixture = FIXTURES / "main_first_main_with_dataflow"
     out = tmp_path / "out"
-    rc = main(["convert-tree", str(MAIN_FIRST), str(out)])
+    rc = main(["convert-tree", str(dual_mode_fixture), str(out)])
     assert rc == 0
 
     orch_files = list(out.glob("*_orchestrator.sql"))
@@ -79,6 +86,48 @@ def test_no_orchestrator_default_is_off(tmp_path):
     orch_sql = orch_files[0].read_text(encoding="utf-8")
     assert "EXEC " in orch_sql, (
         "default convert-tree must emit an orchestrator file with EXECs"
+    )
+
+
+def test_no_orchestrator_flag_disables_collapse(tmp_path):
+    """AC-13 / D-8: ``--no-orchestrator`` disables the orch-only collapse.
+
+    For ``main_first/`` (orchestrator-only main), the flag forces ``main.sql``
+    back to today's empty-body shape (no EXECs) and emits exactly one .sql per
+    .dtsx — no ``*_orchestrator.sql`` file.
+    """
+    out = tmp_path / "out"
+    rc = main([
+        "convert-tree",
+        "--no-orchestrator",
+        str(MAIN_FIRST),
+        str(out),
+    ])
+    assert rc == 0
+
+    # Exactly one .sql per .dtsx input: main + childa + childb.
+    sql_files = sorted(f.name for f in out.glob("*.sql"))
+    assert sql_files == ["childa.sql", "childb.sql", "main.sql"], sql_files
+
+    # No orchestrator file.
+    orch_files = list(out.glob("*_orchestrator.sql"))
+    assert orch_files == [], (
+        f"--no-orchestrator must suppress every orchestrator file, got "
+        f"{[f.name for f in orch_files]}"
+    )
+
+    # main.sql is the empty-body shape: no EXECs of child procs.
+    main_sql = (out / "main.sql").read_text(encoding="utf-8")
+    main_exec_lines = [
+        line for line in main_sql.splitlines() if line.strip().startswith("EXEC ")
+    ]
+    assert main_exec_lines == [], (
+        f"--no-orchestrator must disable collapse; main.sql must contain zero EXECs; got:\n{main_sql}"
+    )
+    # Empty-body shape: header still reports zero data flow tasks; no
+    # ``Orchestration :`` line should appear under --no-orchestrator (D-8).
+    assert "Orchestration :" not in main_sql, (
+        f"--no-orchestrator must NOT surface the collapse 'Orchestration :' header; got:\n{main_sql}"
     )
 
 

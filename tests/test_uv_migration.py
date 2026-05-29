@@ -299,6 +299,10 @@ def test_grep_gate_live_source() -> None:
             ":!.repomix-output.xml",
             ":!.repomix-textual.xml",
             ":!tests/test_uv_migration.py",
+            # Offline-install path: README + run.bat fall back to stdlib
+            # venv because uv may be absent on air-gapped Windows hosts.
+            ":!README.md",
+            ":!run.bat",
         ],
         cwd=REPO_ROOT,
         capture_output=True,

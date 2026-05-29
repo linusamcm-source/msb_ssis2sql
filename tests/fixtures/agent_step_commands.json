@@ -1,0 +1,89 @@
+{
+  "_comment": "Table of SSIS command-line shapes for the D-9/D-10/D-12/D-13 parser. Each entry has command, expected_outcome (Hit|Unparseable), and either expected_path (POSIX, basename-normalised per D-12) or expected_reason. Used by tests/test_agent_command_parser.py.",
+  "cases": [
+    {
+      "id": "file_long_form_quoted",
+      "command": "DTExec /FILE \"C:\\etl\\fact\\nightly.dtsx\"",
+      "expected_outcome": "Hit",
+      "expected_path": "C:/etl/fact/nightly.dtsx"
+    },
+    {
+      "id": "file_short_form_quoted",
+      "command": "DTExec /F \"C:\\etl\\fact\\nightly.dtsx\"",
+      "expected_outcome": "Hit",
+      "expected_path": "C:/etl/fact/nightly.dtsx"
+    },
+    {
+      "id": "file_lowercase_flag",
+      "command": "dtexec /file \"c:\\etl\\fact\\nightly.dtsx\"",
+      "expected_outcome": "Hit",
+      "expected_path": "c:/etl/fact/nightly.dtsx"
+    },
+    {
+      "id": "isserver_ssisdb_catalog",
+      "command": "DTExec /ISSERVER \"\\SSISDB\\Folder\\Project\\Pkg.dtsx\"",
+      "expected_outcome": "Hit",
+      "expected_path": "/SSISDB/Folder/Project/Pkg.dtsx"
+    },
+    {
+      "id": "sq_short_no_dtsx_suffix",
+      "command": "DTExec /SQ \"\\Pkgs\\NightlyLoad\"",
+      "expected_outcome": "Hit",
+      "expected_path": "/Pkgs/NightlyLoad.dtsx"
+    },
+    {
+      "id": "sql_long_uppercase_suffix_preserved",
+      "command": "DTExec /SQL \"\\Pkgs\\NightlyLoad.DTSX\"",
+      "expected_outcome": "Hit",
+      "expected_path": "/Pkgs/NightlyLoad.DTSX"
+    },
+    {
+      "id": "env_var_present_rejected",
+      "command": "DTExec /FILE \"%SSIS_ROOT%\\foo.dtsx\"",
+      "expected_outcome": "Unparseable",
+      "expected_reason": "env var present"
+    },
+    {
+      "id": "config_file_present_rejected",
+      "command": "DTExec /FILE \"foo.dtsx\" /CONFIGFILE \"bar.dtsConfig\"",
+      "expected_outcome": "Unparseable",
+      "expected_reason": "config file present"
+    },
+    {
+      "id": "no_known_flag",
+      "command": "DTExec /SQUASH x",
+      "expected_outcome": "Unparseable",
+      "expected_reason": "no /FILE, /ISSERVER, or /SQL flag found"
+    },
+    {
+      "id": "sqldbg_does_not_match_sq_prefix",
+      "command": "dtexec /SQLDBG /F \"foo.dtsx\"",
+      "expected_outcome": "Hit",
+      "expected_path": "foo.dtsx"
+    },
+    {
+      "id": "tsql_style_no_dtexec_flags",
+      "command": "EXEC dbo.usp_something",
+      "expected_outcome": "Unparseable",
+      "expected_reason": "no /FILE, /ISSERVER, or /SQL flag found"
+    },
+    {
+      "id": "empty_string",
+      "command": "",
+      "expected_outcome": "Unparseable",
+      "expected_reason": "no /FILE, /ISSERVER, or /SQL flag found"
+    },
+    {
+      "id": "file_at_command_start",
+      "command": "/FILE \"C:\\etl\\fact\\nightly.dtsx\"",
+      "expected_outcome": "Hit",
+      "expected_path": "C:/etl/fact/nightly.dtsx"
+    },
+    {
+      "id": "isserver_at_command_start",
+      "command": "/ISSERVER \"\\SSISDB\\Folder\\Project\\Pkg.dtsx\"",
+      "expected_outcome": "Hit",
+      "expected_path": "/SSISDB/Folder/Project/Pkg.dtsx"
+    }
+  ]
+}

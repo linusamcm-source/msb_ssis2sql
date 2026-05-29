@@ -3,6 +3,10 @@
 Companion to [`ssis-to-adf-conversion-plan.md`](../ssis-to-adf-conversion-plan.md).
 This plan covers the conversion-pipeline changes needed before ADF/IaC work.
 
+**Superseded by:** [`plan-final-orch-only-main.md`](./plan-final-orch-only-main.md) — the orchestrator-only `main.dtsx` collapse removes the empty-body main proc plus the separate `*_orchestrator.sql` file when `main.dtsx` is a pure control-flow orchestrator. All other behaviour in this plan is preserved.
+
+**Follow-up:** [`plan-final-agent-step-procs.md`](./plan-final-agent-step-procs.md) — `convert_tree` now also writes `_proc_manifest.json` next to `_batch_warnings.log`, and `extract-agent-jobs --proc-manifest` honours that manifest to rewrite SSIS-subsystem agent steps to call the converted T-SQL procedures.
+
 ---
 
 ## Goals

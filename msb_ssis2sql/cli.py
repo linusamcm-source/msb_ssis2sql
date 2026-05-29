@@ -76,6 +76,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--filter", metavar="PATTERN", default=None,
         help="Only extract jobs whose name contains PATTERN (case-insensitive).",
     )
+    agent.add_argument(
+        "--proc-manifest", type=pathlib.Path, default=None,
+        help="Optional path to _proc_manifest.json emitted by convert-tree; "
+             "rewrites SSIS-subsystem steps to call the matching T-SQL procedures.",
+    )
 
     return parser
 
@@ -152,13 +157,33 @@ def _cmd_convert_tree(args) -> int:
 
 
 def _cmd_extract_agent_jobs(args) -> int:
-    from .agent.extractor import extract_jobs
+    from .agent.extractor import extract_agent_jobs
+    from .agent.manifest import ManifestError
 
     dsn = getattr(args, "dsn", None) or os.environ.get("MSDB_DSN", "")
     out = getattr(args, "out", None) or "jobs"
     job_filter = getattr(args, "filter", None)
+    manifest_path = getattr(args, "proc_manifest", None)
 
-    written = extract_jobs(dsn=dsn, out_dir=pathlib.Path(out), job_filter=job_filter)
+    try:
+        written = extract_agent_jobs(
+            dsn=dsn,
+            out_dir=pathlib.Path(out),
+            job_filter=job_filter,
+            manifest_path=manifest_path,
+        )
+    except ManifestError as exc:
+        msg = str(exc)
+        if msg.startswith("unsupported version:"):
+            # Re-prefix so the CLI surface is "manifest version unsupported: <n>" per AC-4.
+            n = msg.split(":", 1)[1].strip()
+            print(f"msb_ssis2sql: manifest version unsupported: {n}", file=sys.stderr)
+        else:
+            # Strip the leading "invalid: " produced by the loader so the
+            # CLI line reads "manifest invalid: <reason>" per AC-4.
+            reason = msg[len("invalid:"):].strip() if msg.startswith("invalid:") else msg
+            print(f"msb_ssis2sql: manifest invalid: {reason}", file=sys.stderr)
+        return 2
     for p in written:
         print(f"wrote {p}")
     return 0
