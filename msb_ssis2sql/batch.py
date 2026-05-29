@@ -14,6 +14,7 @@ from .generator import ConvertOptions, convert_file, convert_package
 from .model import Package
 from .observability import logged, logger
 from .parser import parse_file
+from .project import load_project
 from .util import _posix, decode_package_name
 
 
@@ -93,6 +94,24 @@ def convert_tree(
     for dir_path, dir_files in sorted(by_dir.items()):
         rel_dir = dir_path.relative_to(input_root)
         rel_dir_str = str(rel_dir)
+
+        # An expanded SSIS project (a directory with @Project.manifest) supplies
+        # project parameters + shared connection managers to every package in it.
+        project = load_project(dir_path)
+        if project is not None:
+            logger.info(
+                "directory {} is an expanded project {!r}: protection={!r}, "
+                "{} param(s), {} project connection(s)",
+                rel_dir_str, project.name, project.protection_level,
+                len(project.parameters), len(project.connection_managers),
+            )
+            if project.is_password_encrypted:
+                batch_warnings.append((
+                    str(dir_path),
+                    f"project {project.name!r} protection level "
+                    f"{project.protection_level!r}: parameter values and sensitive "
+                    f"connection-string parts are encrypted and not exported",
+                ))
 
         # Resolve proc-name collisions per directory. Decode stems first so
         # '%20'-encoded disk names share a collision namespace with EPT refs.
@@ -206,9 +225,9 @@ def convert_tree(
                 if is_main:
                     # T-4b: reuse the eager parse instead of re-parsing.
                     assert cached_main_pkg is not None
-                    conversion = convert_package(cached_main_pkg, wrap_opts)
+                    conversion = convert_package(cached_main_pkg, wrap_opts, project=project)
                 else:
-                    conversion = convert_file(src, wrap_opts)
+                    conversion = convert_file(src, wrap_opts, project=project)
                 dst.write_text(conversion.sql, encoding="utf-8")
                 outcome = FileOutcome(
                     src, dst, ok=True,

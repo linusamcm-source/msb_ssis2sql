@@ -1,0 +1,53 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+    DTS:ObjectName="LoadDims" DTS:ExecutableType="Package">
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\DFT" DTS:ObjectName="DFT"
+        DTS:ExecutableType="Microsoft.Pipeline">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+            <component refId="src" name="Src" componentClassID="Microsoft.OLEDBSource">
+              <properties>
+                <property name="OpenRowset">dbo.SrcDims</property>
+              </properties>
+              <outputs>
+                <output refId="src.out" name="Output">
+                  <outputColumns>
+                    <outputColumn refId="src.out.id" name="Id" dataType="i4"
+                        lineageId="src.out.id" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+            <component refId="dc" name="Derive" componentClassID="Microsoft.DerivedColumn">
+              <inputs>
+                <input refId="dc.in" name="Input">
+                  <inputColumns>
+                    <inputColumn refId="dc.in.id" lineageId="src.out.id"
+                        cachedName="Id" cachedDataType="i4" />
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="dc.out" name="Derived" synchronousInputId="dc.in">
+                  <outputColumns>
+                    <outputColumn refId="dc.out.batch" name="Batch" dataType="i4"
+                        lineageId="dc.out.batch">
+                      <properties>
+                        <property name="Expression">@[$Project::BatchSize]</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+          </components>
+          <paths>
+            <path refId="p1" startId="src.out" endId="dc.in" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

@@ -61,6 +61,30 @@ def convert_file(
 
 
 @logged
+def convert_project(
+    project_dir: str | pathlib.Path,
+    options: ConvertOptions | None = None,
+) -> dict[str, ConversionResult]:
+    """Convert every ``.dtsx`` in an expanded SSIS project directory.
+
+    Loads the project context once (``@Project.manifest`` / ``Project.params`` /
+    ``*.conmgr``) and converts each package with that shared context, so project
+    parameters and shared connection managers resolve. Returns a mapping of
+    package file stem -> :class:`ConversionResult`. When the directory is not an
+    expanded project (no manifest) the packages still convert, just without
+    project context.
+    """
+    from .project import load_project
+
+    project_dir = pathlib.Path(project_dir)
+    project = load_project(project_dir)
+    results: dict[str, ConversionResult] = {}
+    for dtsx in sorted(project_dir.glob("*.dtsx")):
+        results[dtsx.stem] = convert_file(dtsx, options, project=project)
+    return results
+
+
+@logged
 def convert_package(
     package: Package,
     options: ConvertOptions | None = None,

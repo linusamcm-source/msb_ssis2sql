@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+    DTS:ObjectName="LoadSales" DTS:ExecutableType="Package">
+  <DTS:Executables>
+    <DTS:Executable DTS:refId="Package\DFT" DTS:ObjectName="DFT"
+        DTS:ExecutableType="Microsoft.Pipeline">
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+            <component refId="src" name="Src" componentClassID="Microsoft.OLEDBSource">
+              <properties>
+                <property name="OpenRowset">dbo.SrcSales</property>
+              </properties>
+              <connections>
+                <connection refId="src.c" connectionManagerRefId="StagingDB" name="StagingDB" />
+              </connections>
+              <outputs>
+                <output refId="src.out" name="Output">
+                  <outputColumns>
+                    <outputColumn refId="src.out.amount" name="Amount" dataType="i4"
+                        lineageId="src.out.amount" />
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+            <component refId="dc" name="Derive" componentClassID="Microsoft.DerivedColumn">
+              <inputs>
+                <input refId="dc.in" name="Input">
+                  <inputColumns>
+                    <inputColumn refId="dc.in.amount" lineageId="src.out.amount"
+                        cachedName="Amount" cachedDataType="i4" />
+                  </inputColumns>
+                </input>
+              </inputs>
+              <outputs>
+                <output refId="dc.out" name="Derived" synchronousInputId="dc.in">
+                  <outputColumns>
+                    <outputColumn refId="dc.out.server" name="ServerName" dataType="wstr"
+                        length="50" lineageId="dc.out.server">
+                      <properties>
+                        <property name="Expression">@[$Project::StagingServer]</property>
+                      </properties>
+                    </outputColumn>
+                  </outputColumns>
+                </output>
+              </outputs>
+            </component>
+          </components>
+          <paths>
+            <path refId="p1" startId="src.out" endId="dc.in" />
+          </paths>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+  </DTS:Executables>
+</DTS:Executable>

@@ -17,7 +17,13 @@ from .errors import (
     ExpressionError,
     GraphError,
 )
-from .generator import ConvertOptions, ConversionResult, convert_file, convert_package
+from .generator import (
+    ConvertOptions,
+    ConversionResult,
+    convert_file,
+    convert_package,
+    convert_project,
+)
 from .observability import configure_logging, logged
 
 __version__ = "0.1.0"
@@ -28,6 +34,7 @@ __all__ = [
     "ConversionResult",
     "convert_file",
     "convert_package",
+    "convert_project",
     "configure_logging",
     "logged",
     "Ssis2SqlError",
