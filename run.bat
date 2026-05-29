@@ -45,6 +45,7 @@ echo.
 echo  ADVANCED
 echo   19.  extract-agent-jobs-smoke - live SQL Server smoke (Docker)
 echo   20.  convert-samples         - convert every .dtsx under examples\samples
+echo   22.  extract-packages-smoke  - live SQL Server smoke for package extractor
 echo.
 echo    0.  exit
 echo.
@@ -71,6 +72,7 @@ if "%choice%"=="18" goto validate_static
 if "%choice%"=="19" goto extract_agent_jobs_smoke
 if "%choice%"=="20" goto convert_samples
 if "%choice%"=="21" goto install_offline
+if "%choice%"=="22" goto extract_packages_smoke
 if "%choice%"=="0"  goto end
 
 echo Unknown choice: %choice%
@@ -237,6 +239,15 @@ echo Running: uv run pytest validation/ -m agent_smoke
 echo NOTE: This target expects a containerised SQL Server (Docker on Windows).
 echo       See plan-final.md section 9 for setup.
 uv run pytest validation/ -m agent_smoke
+goto done
+
+REM ------------------------------------------------------------
+:extract_packages_smoke
+echo.
+echo Running: uv run pytest validation/ -m package_smoke
+echo NOTE: Needs MSSQL_SERVER_ADDRESS set and a SQL Server reachable via
+echo       Windows Integrated auth (e.g. a domain-joined host). Skips otherwise.
+uv run pytest validation/ -m package_smoke
 goto done
 
 :convert_samples

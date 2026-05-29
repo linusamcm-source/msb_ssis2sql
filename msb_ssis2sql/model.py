@@ -146,12 +146,13 @@ class DataFlow:
 
 @dataclass
 class ConnectionManager:
-    """A package-level connection manager."""
+    """A connection manager, scoped to a package or to the project."""
 
     ref_id: str = ""
     name: str = ""
     creation_name: str = ""          # OLEDB, FLATFILE, ADO.NET, ...
     connection_string: str = ""
+    scope: str = "package"           # "package" | "project"
     properties: dict[str, str] = field(default_factory=dict)
 
 
@@ -167,6 +168,54 @@ class Variable:
     @property
     def qualified(self) -> str:
         return f"{self.namespace}::{self.name}"
+
+
+@dataclass
+class Parameter:
+    """A project or package parameter (``$Project::Name`` / ``$Package::Name``).
+
+    Distinct from :class:`Variable`: parameters are the project-deployment
+    model's typed, defaulted inputs, defined in ``Project.params`` or a
+    package's ``<DTS:PackageParameters>`` block. ``data_type`` is the raw type
+    code as stored (a .NET ``TypeCode`` for project params); ``sensitive`` marks
+    a value withheld under an ``Encrypt*`` protection level.
+    """
+
+    namespace: str = "Project"       # "Project" | "Package"
+    name: str = ""
+    data_type: str = ""
+    value: str = ""
+    sensitive: bool = False
+    required: bool = False
+
+    @property
+    def qualified(self) -> str:
+        return f"${self.namespace}::{self.name}"
+
+
+@dataclass
+class Project:
+    """An expanded SSIS project (the unzipped contents of an ``.ispac``).
+
+    Holds the project-scoped artefacts a package references but does not itself
+    contain: project parameters, shared (project) connection managers, the
+    protection level, and the project's package list.
+    """
+
+    name: str = ""
+    protection_level: str = ""
+    parameters: list[Parameter] = field(default_factory=list)
+    connection_managers: list[ConnectionManager] = field(default_factory=list)
+    package_names: list[str] = field(default_factory=list)
+    source_dir: str = ""
+
+    @property
+    def is_password_encrypted(self) -> bool:
+        """True when values/connection strings are unreadable without a password."""
+        return self.protection_level in (
+            "EncryptAllWithPassword",
+            "EncryptSensitiveWithPassword",
+        )
 
 
 @dataclass
@@ -208,7 +257,9 @@ class Package:
     data_flows: list[DataFlow] = field(default_factory=list)
     connection_managers: list[ConnectionManager] = field(default_factory=list)
     variables: list[Variable] = field(default_factory=list)
+    parameters: list[Parameter] = field(default_factory=list)   # package parameters
     exec_sql_tasks: list[str] = field(default_factory=list)    # raw SQL from control flow
     executables: list[Executable] = field(default_factory=list)
     execute_package_tasks: list[ExecutePackageTask] = field(default_factory=list)
     precedence_constraints: list[PrecedenceConstraint] = field(default_factory=list)
+    project: Project | None = None                              # project context, if any

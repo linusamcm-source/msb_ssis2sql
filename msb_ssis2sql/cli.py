@@ -1,5 +1,6 @@
 """Command-line interface: ``msb_ssis2sql convert``, ``msb_ssis2sql inspect``,
-``msb_ssis2sql convert-tree``, and ``msb_ssis2sql extract-agent-jobs``."""
+``msb_ssis2sql convert-tree``, ``msb_ssis2sql extract-agent-jobs``, and
+``msb_ssis2sql extract-packages``."""
 from __future__ import annotations
 
 import argparse
@@ -82,6 +83,53 @@ def build_parser() -> argparse.ArgumentParser:
         "--proc-manifest", type=pathlib.Path, default=None,
         help="Optional path to _proc_manifest.json emitted by convert-tree; "
              "rewrites SSIS-subsystem steps to call the matching T-SQL procedures.",
+    )
+
+    packages = sub.add_parser(
+        "extract-packages",
+        parents=[common],
+        help="Extract SSIS packages from a SQL Server store into .dtsx files (Windows auth).",
+    )
+    packages.add_argument(
+        "--server", metavar="HOST", default=None,
+        help="SQL Server host (overrides MSSQL_SERVER_ADDRESS env var).",
+    )
+    packages.add_argument(
+        "--port", metavar="PORT", default=None,
+        help="SQL Server TCP port (overrides MSSQL_SERVER_PORT; default 1433).",
+    )
+    packages.add_argument(
+        "--database", metavar="NAME", default="",
+        help="Connection database scope (default: master; queries are three-part qualified).",
+    )
+    packages.add_argument(
+        "--store", choices=("auto", "msdb", "ssisdb"), default="auto",
+        help="Package store to read (default: auto-detect SSISDB, else msdb).",
+    )
+    packages.add_argument(
+        "--filter", metavar="PATTERN", default=None,
+        help="Only extract packages whose name contains PATTERN (case-insensitive).",
+    )
+    packages.add_argument(
+        "--out", metavar="DIR", default="packages",
+        help="Output directory for the mirrored .dtsx tree (default: ./packages).",
+    )
+    packages.add_argument(
+        "--driver", metavar="NAME", default="ODBC Driver 18 for SQL Server",
+        help="ODBC driver name (default: 'ODBC Driver 18 for SQL Server').",
+    )
+    packages.add_argument(
+        "--trust-cert", action=argparse.BooleanOptionalAction, default=True,
+        help="Pass TrustServerCertificate=yes (default: on; use --no-trust-cert to disable).",
+    )
+    packages.add_argument(
+        "--clean", action="store_true",
+        help="Delete the output directory before extracting (idempotent re-runs).",
+    )
+    packages.add_argument(
+        "--expanded", action="store_true",
+        help="SSISDB only: also write each project's @Project.manifest, "
+             "Project.params and *.conmgr so convert-tree reads it losslessly.",
     )
 
     return parser
@@ -191,6 +239,36 @@ def _cmd_extract_agent_jobs(args) -> int:
     return 0
 
 
+def _cmd_extract_packages(args) -> int:
+    from .packages.extractor import extract_packages
+
+    server = getattr(args, "server", None) or os.environ.get("MSSQL_SERVER_ADDRESS", "")
+    if not server:
+        print(
+            "msb_ssis2sql: error: --server is required (or set MSSQL_SERVER_ADDRESS)",
+            file=sys.stderr,
+        )
+        return 2
+    port = getattr(args, "port", None) or os.environ.get("MSSQL_SERVER_PORT", "") or "1433"
+
+    written = extract_packages(
+        server=server,
+        port=port,
+        database=args.database,
+        store=args.store,
+        name_filter=getattr(args, "filter", None),
+        out_dir=pathlib.Path(args.out),
+        driver=args.driver,
+        trust_cert=args.trust_cert,
+        clean=args.clean,
+        expanded=args.expanded,
+    )
+    for p in written:
+        print(f"wrote {p}")
+    print(f"extracted {len(written)} package(s) into {args.out}")
+    return 0
+
+
 def _log_level(verbosity: int) -> str:
     return {0: "WARNING", 1: "INFO"}.get(verbosity, "DEBUG")
 
@@ -208,6 +286,8 @@ def main(argv: list[str] | None = None) -> int:
             return _cmd_convert_tree(args)
         if args.command == "extract-agent-jobs":
             return _cmd_extract_agent_jobs(args)
+        if args.command == "extract-packages":
+            return _cmd_extract_packages(args)
     except Ssis2SqlError as exc:
         print(f"msb_ssis2sql: error: {exc}", file=sys.stderr)
         return 2

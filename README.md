@@ -32,20 +32,26 @@ uv sync
 ```
 
 Single install covers the CLI, the TUI, the web server, and the differential
-validation framework. Runtime deps: `loguru` (logging) and `textual` (TUI).
+validation framework. Runtime deps: `loguru` (logging), `textual` (TUI),
+`pyodbc` (SQL Server / msdb connectivity), and `pyyaml` (Agent-job YAML).
 Python 3.14 is pinned via `.python-version`; `uv` will fetch it automatically
-if it's not present.
+if it's not present (the package itself supports Python ≥ 3.11).
 
-macOS users running the validation layer also need `brew install unixodbc`
-once so `import pyodbc` finds `libodbc.dylib` at runtime. Users who don't
-need differential validation can skip the group entirely with
-`uv sync --no-group validation`.
+macOS users need `brew install unixodbc` once so `import pyodbc` finds
+`libodbc.dylib` at runtime — this matters for both differential validation and
+SQL Server Agent extraction. The optional `validation` group adds the
+differential-comparison stack (`pandas`, `pyarrow`, `sqlglot`,
+`python-dotenv`); skip it with `uv sync --no-group validation` if you only
+need conversion.
 
 ### Offline install (Windows, air-gapped)
 
-The `wheels/` directory ships pre-downloaded binary wheels for Python 3.14
-on `win_amd64`, covering runtime, dev, web, and validation groups. On a host
-without internet access:
+`run.bat` option **21 (install-offline)** installs the whole project from a
+local `wheels/` directory of pre-downloaded binary wheels (Python 3.14,
+`win_amd64`), covering runtime, dev, web, and validation groups — no internet
+required. The `wheels/` bundle is **gitignored** and not committed; generate it
+once on an online box (see "Refresh the bundle" below), copy it into the repo
+on the air-gapped host, then:
 
 ```bat
 REM From cmd.exe in the repo root, with Python 3.14 (x64) on PATH:
@@ -66,7 +72,7 @@ python -m venv .venv
     --no-build-isolation -e .
 ```
 
-To refresh the bundle (on an online box) after dependency changes:
+To build or refresh the bundle (on an online box) after dependency changes:
 
 ```sh
 uv lock
@@ -88,13 +94,37 @@ python -m pip download --dest wheels/ --platform win_amd64 \
 msb_ssis2sql convert package.dtsx                 # T-SQL to stdout
 msb_ssis2sql convert package.dtsx -o output.sql   # ... or to a file
 msb_ssis2sql convert package.dtsx --procedure usp_Load   # wrap in a stored procedure
+msb_ssis2sql convert package.dtsx --no-header --quiet    # bare SQL, no stderr warnings
 msb_ssis2sql inspect package.dtsx                 # print the parsed component graph
 ```
+
+The CLI has five sub-commands:
+
+| Command | What it does |
+|---------|--------------|
+| `convert` | one `.dtsx` → consolidated T-SQL (stdout or `-o`, optionally `--procedure`) |
+| `inspect` | print the parsed component graph and exit |
+| `convert-tree IN OUT` | recursively convert a directory of `.dtsx` into a mirrored `.sql` tree (see [How it works](#how-it-works)); `--no-orchestrator` opts out of the collapsed main proc |
+| `extract-agent-jobs` | read `msdb.dbo.sysjobs*` over ODBC and emit one YAML file per SQL Server Agent job; `--proc-manifest` rewrites SSIS steps to call the converted procedures |
+| `extract-packages` | connect to a SQL Server store (Windows auth) and write every stored SSIS package to disk as `.dtsx`; auto-detects the SSISDB catalog, falling back to the legacy `msdb` store; `--expanded` also writes the project files. See [Extracting packages from SQL Server](#extracting-packages-from-sql-server) |
+
+`-v` / `-vv` raise the log level on any command (see [Logging](#logging)).
 
 Try it on the bundled example:
 
 ```sh
 just demo
+```
+
+### TUI and web
+
+A Textual control-panel UI wraps the justfile recipes — conversion, tests, and
+all three validation layers — without leaving the terminal:
+
+```sh
+just tui                       # python -m msb_ssis2sql.tui
+just web                       # serve the same TUI in a browser via textual-serve
+msb_ssis2sql-web --port 8000   # the web server's own entry point
 ```
 
 ### As a library
@@ -134,6 +164,91 @@ To instrument your own code: `@logged` on a function, `@log_methods` on a class,
 or `instrument_module(sys.modules[__name__])` for a whole module. The decorator
 **re-raises** by default — pass `reraise=False` only where swallowing the error
 and returning `None` is genuinely correct, never as a blanket default.
+
+## Extracting packages from SQL Server
+
+`extract-packages` pulls SSIS packages straight out of a SQL Server instance
+and writes each as a `.dtsx` file — the same format `convert-tree` consumes, so
+the two compose into an end-to-end migration.
+
+```sh
+# Windows Integrated auth (the current process identity). Auto-detects the
+# SSISDB catalog, else reads the legacy msdb package store.
+msb_ssis2sql extract-packages --server sql01 --out ./packages
+just extract-packages sql01 ./packages          # same thing via justfile
+```
+
+Two stores are supported, chosen by `--store {auto,msdb,ssisdb}`:
+
+| Store | Source | On disk |
+|-------|--------|---------|
+| `msdb` | `msdb.dbo.sysssispackages` (the `packagedata` column *is* the `.dtsx`) | `<out>/<folder>/<name>.dtsx` |
+| `ssisdb` | the SSIS catalog — packages live inside `.ispac` project archives fetched via `catalog.get_project` and unzipped | `<out>/<folder>/<project>/<name>.dtsx` |
+
+`auto` (the default) probes `DB_ID('SSISDB')` and prefers the catalog when
+present. The connection uses **Windows Integrated auth**
+(`Trusted_Connection=yes`) — no username or password is ever read, passed, or
+logged. Alongside the `.dtsx` tree the command writes a deterministic
+`_packages_manifest.json` (every package → its output path) and, when a package
+is skipped, a `_packages_warnings.log`. `--clean` wipes the output directory
+first for idempotent re-runs; `--filter` selects by case-insensitive substring.
+
+### From an Azure DevOps pipeline
+
+`azure-pipelines.yaml` runs this from a pipeline. Every operator input (server,
+port, store, database, filter, output directory) is a `parameters:` entry at the
+top of the file, chosen at queue time. Because Windows Integrated auth carries
+no password, **nothing secret is stored in the pipeline** — but it does require
+a **self-hosted Windows agent** whose service account is the domain identity
+with read access to SQL Server (Microsoft-hosted agents cannot join the domain
+and cannot do integrated auth). The agent VM needs ODBC Driver 18 and `uv`
+installed once. An optional `convertToSql` parameter chains the extracted
+packages straight into `convert-tree`. See
+`docs/plan-extract-packages-pipeline.md` for the full design and the read-only
+SQL grants required.
+
+## Project-deployment model (expanded `.ispac`)
+
+A project-deployment SSIS project (the unzipped contents of an `.ispac`) keeps
+parameters and shared connection managers *outside* the individual packages:
+
+```
+MyProject/
+  @Project.manifest    protection level, version, package list
+  Project.params       $Project::… parameters (typed, with defaults)
+  Staging.conmgr        shared (project) connection managers
+  LoadSales.dtsx        packages that reference the above
+```
+
+`msb_ssis2sql` reads these and threads them through conversion, so a package
+that references `$Project::Param` or a project-scoped connection converts with
+real values instead of empty placeholders:
+
+```python
+from msb_ssis2sql import convert_project
+results = convert_project("MyProject/")        # {package_stem: ConversionResult}
+```
+
+`convert-tree` auto-detects an expanded project (any directory containing
+`@Project.manifest`) and applies its context to every package in that
+directory — no flag needed. What gets used:
+
+- **Project & package parameters** → typed `DECLARE`s with their real default
+  values (`$Project::BatchSize` → `DECLARE @BatchSize INT = 5000;`). Package
+  parameters override project parameters of the same name. **Sensitive**
+  parameters (and any project under an `Encrypt*WithPassword` protection level)
+  are emitted as `NULL` with a warning — their values are not in the export.
+- **Project connection managers** → a package referencing a shared connection
+  resolves it (package scope first, then project scope). With the opt-in
+  `ConvertOptions(qualify_from_connection=True)`, source/destination tables are
+  prefixed with the database from the connection string
+  (`[db].[schema].[table]`); off by default.
+
+To get a faithful expanded project out of an SSISDB catalog in one step, use
+`extract-packages --expanded`, which writes `@Project.manifest`,
+`Project.params` and `*.conmgr` alongside the `.dtsx` — making extract →
+`convert-tree` a lossless round-trip. See
+`docs/plan-project-deployment-model.md` for the full design.
 
 ## How it works
 
@@ -180,7 +295,7 @@ an entry in `<out>/_agent_warnings.log`. See
 
 | SSIS component | T-SQL translation |
 |----------------|-------------------|
-| OLE DB / ADO.NET / Flat File **Source** | base CTE — `SELECT … FROM` table or SQL command |
+| OLE DB / ADO.NET / ODBC / Excel / XML / Flat File **Source** | base CTE — `SELECT … FROM` table or SQL command |
 | **Derived Column** | computed columns from translated SSIS expressions |
 | **Data Conversion** | `CAST(…)` columns |
 | **Copy Column** | duplicated columns |
@@ -194,7 +309,7 @@ an entry in `<out>/_agent_warnings.log`. See
 | **Row Count** | pass-through (the variable assignment is dropped) |
 | **Audit** | system-context columns (`SYSDATETIME()`, `HOST_NAME()`, …) |
 | OLE DB / Flat File **Destination** | terminal `INSERT INTO … SELECT` |
-| Script / Pivot / Unpivot / OLE DB Command / SCD | pass-through + warning |
+| Character Map / Script / Pivot / Unpivot / OLE DB Command / SCD | pass-through + warning |
 
 ## SSIS expression translation
 
@@ -235,8 +350,8 @@ header).
 - **Control-flow** (precedence constraints, loops, Execute SQL Tasks) is not
   converted — only data-flow transformations. Execute SQL Tasks are copied into
   the output as comments for reference.
-- **Script / Pivot / Unpivot / SCD** components become pass-throughs with a
-  warning; they need manual rework.
+- **Character Map / Script / Pivot / Unpivot / OLE DB Command / SCD**
+  components become pass-throughs with a warning; they need manual rework.
 - Package **variables** referenced by expressions become `DECLARE`d parameters;
   confirm their types and values before running.
 
@@ -265,24 +380,39 @@ Import the module from `transforms/__init__.py` so it self-registers.
 ```
 msb_ssis2sql/
   parser.py            .dtsx XML  -> intermediate representation
+  project.py           expanded .ispac (@Project.manifest / .params / .conmgr) -> Project
   model.py             the IR dataclasses
+  relation.py          the Relation - a named result set that becomes a CTE
   component_types.py   componentClassID -> ComponentKind
   graph.py             the data-flow DAG + topological sort
+  control_graph.py     control-flow DAG over ExecutePackageTasks + constraints
   expressions/         SSIS expression language: lexer, parser, translator
   transforms/          component transpilers, plus the build context and registry
   generator.py         CTE assembly -> consolidated T-SQL
+  batch.py             convert-tree: a directory of .dtsx -> a mirrored .sql tree
+  agent/               SQL Server Agent job extraction (msdb -> YAML) + step rewriting
+  packages/            SSIS package extraction (msdb store / SSISDB catalog -> .dtsx)
   dialect.py           T-SQL identifier quoting
   sqltypes.py          SSIS data-type codes -> T-SQL types
+  _naming.py           identifier sanitiser + per-directory collision suffixes
+  errors.py            the Ssis2SqlError exception hierarchy
+  util.py              small dependency-free shared helpers
   observability.py     loguru logging: @logged / log_methods / instrument_module
   cli.py               the `msb_ssis2sql` command line
+  tui.py               the Textual control-panel UI
+  web.py               serve the TUI in a browser (msb_ssis2sql-web)
 examples/sales_etl.dtsx   a worked package exercising every transpiler
 tests/                    pytest suite
+validation/               differential validation framework (see below)
 ```
 
 ## Testing
 
 ```sh
 just test          # or: uv run pytest
+just cov           # tests with a line-coverage report
+just lint          # ruff (PEP 8 + pyflakes)
+just typecheck     # mypy over msb_ssis2sql + validation
 ```
 
 ## Validation
