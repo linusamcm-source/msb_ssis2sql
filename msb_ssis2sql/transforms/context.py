@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from ..dialect import TSqlDialect
     from ..generator import ConvertOptions
     from ..graph import DataFlowGraph
-    from ..model import Package
+    from ..model import Package, Project
 
 
 @dataclass
@@ -47,11 +47,13 @@ class BuildContext:
         package: Package,
         dialect: TSqlDialect,
         options: ConvertOptions,
+        project: Project | None = None,
     ) -> None:
         self.graph = graph
         self.package = package
         self.dialect = dialect
         self.options = options
+        self.project = project
 
         self.relations: dict[str, Relation] = {}          # output ref_id -> Relation
         self.ctes: dict[str, str] = {}                     # cte name -> SELECT body (insertion order)
