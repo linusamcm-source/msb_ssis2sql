@@ -83,6 +83,60 @@ class BuildContext:
         return self.dialect.quote(name)
 
     # ------------------------------------------------------------------ #
+    # connection-manager resolution (package, then project scope)
+    # ------------------------------------------------------------------ #
+    def resolve_connection_manager(self, component: Component):
+        """The connection manager a component references, or ``None``.
+
+        Searches package-scoped connection managers first, then the project's
+        shared connection managers, matching by ref_id/id and falling back to a
+        name match — so a package that references a *project* connection (one not
+        defined in its own ``.dtsx``) still resolves.
+        """
+        all_cms = list(self.package.connection_managers)
+        if self.project is not None:
+            all_cms += list(self.project.connection_managers)
+
+        for conn in component.connections:
+            ids = {conn.connection_manager_ref_id, conn.connection_manager_id} - {""}
+            for cm in all_cms:
+                if cm.ref_id and cm.ref_id in ids:
+                    return cm
+        for conn in component.connections:
+            if conn.name:
+                for cm in all_cms:
+                    if cm.name == conn.name:
+                        return cm
+        return None
+
+    def qualified_table(self, component: Component, table: str) -> str:
+        """Quote ``table``, optionally db-qualifying it from the connection string.
+
+        When ``options.qualify_from_connection`` is off (default) this is exactly
+        ``dialect.quote_qualified(table)``. When on, a single- or two-part table
+        is prefixed with the database from the component's resolved connection
+        manager (``[db].[schema].[table]``); already three-part names are left
+        alone.
+        """
+        base = self.dialect.quote_qualified(table)
+        if not self.options.qualify_from_connection:
+            return base
+        from .base import database_from_connection
+
+        parts = self.dialect.split_qualified(table)
+        if len(parts) >= 3 or not parts:
+            return base
+        cm = self.resolve_connection_manager(component)
+        database = database_from_connection(cm.connection_string) if cm else ""
+        if not database:
+            return base
+        if len(parts) == 2:
+            qualified = f"{database}.{parts[0]}.{parts[1]}"
+        else:  # single-part: assume the dbo schema
+            qualified = f"{database}.dbo.{parts[0]}"
+        return self.dialect.quote_qualified(qualified)
+
+    # ------------------------------------------------------------------ #
     # relation registry
     # ------------------------------------------------------------------ #
     def upstream_relation(self, input_port: Port) -> Relation | None:

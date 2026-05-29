@@ -69,7 +69,7 @@ class DestinationTranspiler(Transpiler):
     ) -> str:
         table = table_name(component)
         if table:
-            table_sql = ctx.dialect.quote_qualified(table)
+            table_sql = ctx.qualified_table(component, table)
         else:
             ctx.warn(
                 f"destination {component.name!r}: no target table (OpenRowset) - "

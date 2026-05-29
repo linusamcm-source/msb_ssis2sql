@@ -28,6 +28,10 @@ class ConvertOptions:
     procedure_name: str = "usp_Migrated_Package"
     include_header: bool = True
     orchestration_body: list[str] | None = None
+    # Opt-in: qualify source/destination tables with the database from the
+    # resolved connection manager's connection string (off by default - it
+    # changes emitted table names).
+    qualify_from_connection: bool = False
 
 
 @dataclass

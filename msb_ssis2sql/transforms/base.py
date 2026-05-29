@@ -69,6 +69,22 @@ def table_name(component: Component) -> str:
     return (component.property("OpenRowset") or component.property("TableName") or "").strip()
 
 
+def parse_connection_string(conn_str: str) -> dict[str, str]:
+    """Parse a ``key=value;key=value`` connection string into a lower-cased dict."""
+    fields: dict[str, str] = {}
+    for part in (conn_str or "").split(";"):
+        if "=" in part:
+            key, value = part.split("=", 1)
+            fields[key.strip().lower()] = value.strip()
+    return fields
+
+
+def database_from_connection(connection_string: str) -> str:
+    """Extract the target database (``Initial Catalog`` / ``Database``), or ``""``."""
+    fields = parse_connection_string(connection_string)
+    return fields.get("initial catalog") or fields.get("database") or ""
+
+
 def passthrough_columns(
     ctx: BuildContext, relation: Relation, alias: str | None = None
 ) -> list[RelColumn]:
