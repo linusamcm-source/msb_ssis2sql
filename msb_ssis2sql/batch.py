@@ -22,6 +22,27 @@ def _decoded_stem(path: Path) -> str:
     """Disk-file stem with %xx percent-escapes decoded — matches EPT refs."""
     return decode_package_name(path.stem)
 
+
+def _clean_sql_stems(dir_files: list[Path]) -> dict[str, str]:
+    """Map each decoded stem -> a unique, whitespace-free output ``.sql`` stem.
+
+    Whitespace runs in a ``.dtsx`` name (literal spaces or decoded ``%20``)
+    collapse to single underscores so the emitted ``.sql`` files have clean
+    names. Case is preserved (unlike proc-name sanitising). Collisions are
+    de-duplicated case-insensitively with ``_2`` / ``_3`` suffixes in
+    decoded-stem sort order, matching the proc-name collision algorithm.
+    """
+    result: dict[str, str] = {}
+    seen: dict[str, int] = {}
+    for src in sorted(dir_files, key=_decoded_stem):
+        decoded = _decoded_stem(src)
+        base = re.sub(r"\s+", "_", decoded) or "package"
+        key = base.lower()
+        count = seen.get(key, 0)
+        seen[key] = count + 1
+        result[decoded] = base if count == 0 else f"{base}_{count + 1}"
+    return result
+
 # Visual Studio build / intermediate dirs — not source packages.
 _SKIP_DIRS = frozenset({"bin", "obj"})
 
@@ -141,6 +162,13 @@ def convert_tree(
             _decoded_stem(f): _resolve_proc_name(f) for f in dir_files
         }
 
+        # Whitespace-free, collision-safe output .sql filenames (per directory).
+        sql_name_by_stem = _clean_sql_stems(dir_files)
+
+        def _sql_dest(src: Path) -> Path:
+            rel_parent = src.relative_to(input_root).parent
+            return output_root / rel_parent / f"{sql_name_by_stem[_decoded_stem(src)]}.sql"
+
         # T-4: eagerly parse main.dtsx so the per-file loop and the collapse
         # decision share one parse. On parse failure, record the outcome now
         # (preserving main-first outcome ordering), skip main in the loop, but
@@ -152,7 +180,7 @@ def convert_tree(
                 cached_main_pkg = parse_file(main_file)
             except Exception as exc:  # noqa: BLE001
                 main_parse_error = f"main.dtsx parse failed: {exc!r}"
-                main_dst = output_root / main_file.relative_to(input_root).with_suffix(".sql")
+                main_dst = _sql_dest(main_file)
                 result.outcomes.append(
                     FileOutcome(main_file, main_dst, ok=False, error=main_parse_error)
                 )
@@ -203,7 +231,7 @@ def convert_tree(
 
         for src in ordered:
             rel = src.relative_to(input_root)
-            dst = output_root / rel.with_suffix(".sql")
+            dst = _sql_dest(src)
             resolved = dst.resolve()
             if not resolved.is_relative_to(output_root):
                 error_msg = f"output path escapes output root: {resolved}"
