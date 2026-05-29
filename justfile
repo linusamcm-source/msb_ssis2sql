@@ -59,6 +59,13 @@ convert-samples:
     done < <(find examples/samples -name '*.dtsx' -not -path '*/bin/*' -print0 | sort -z)
     echo "done: ${count} package(s) converted into generated_scripts/"
 
+# Extract every SSIS package from a SQL Server instance into OUT as .dtsx files,
+# using Windows Integrated auth (the current process identity). Auto-detects the
+# SSISDB catalog, falling back to the legacy msdb store.
+# Usage: just extract-packages sql-host path/to/output
+extract-packages SERVER OUT:
+    uv run python -m msb_ssis2sql extract-packages --server '{{SERVER}}' --out '{{OUT}}'
+
 # Launch the Textual control-panel UI for msb_ssis2sql.
 tui:
     uv run python -m msb_ssis2sql.tui

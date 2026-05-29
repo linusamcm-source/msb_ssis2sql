@@ -1,5 +1,23 @@
 # Plan — extract SSIS packages from SQL Server in an Azure DevOps pipeline
 
+> **Status: implemented (rev 2).** Shipped as `msb_ssis2sql extract-packages`
+> (`msb_ssis2sql/packages/`), the `azure-pipelines.yaml` at the repo root, a
+> `just extract-packages` recipe, and unit tests in
+> `tests/test_packages_extractor.py` / `tests/test_cli_extract_packages.py`.
+> Rev-2 adjustments folded in during implementation:
+> - **Raw-bytes extraction** — msdb packages are read as `VARBINARY(MAX)` and
+>   written verbatim (preserves the original encoding/BOM), rather than casting
+>   to `XML` and losing the declaration.
+> - **Manifest + warnings log** — a deterministic `_packages_manifest.json` and,
+>   when packages are skipped, a `_packages_warnings.log`, mirroring the agent
+>   extractor's `_proc_manifest.json` / `_agent_warnings.log`.
+> - **Per-package error isolation** — a corrupt `.ispac` or a missing `.dtsx`
+>   member is logged and skipped, never aborting the whole run.
+> - **`--clean`** for idempotent re-runs, and an optional **`convertToSql`**
+>   pipeline parameter that chains extraction into `convert-tree`.
+> - The connection scope defaults to `master`; all queries are three-part
+>   qualified, so store detection works regardless of `--database`.
+
 ## Goal
 
 From an Azure DevOps pipeline, connect to a **parameterised** SQL Server
@@ -75,11 +93,14 @@ Each row's `packagedata` column **is** the `.dtsx` XML.
 ```sql
 SELECT  f.foldername,
         p.name,
-        CAST(CAST(p.packagedata AS VARBINARY(MAX)) AS XML) AS dtsx
+        CAST(p.packagedata AS VARBINARY(MAX)) AS dtsx_bytes
 FROM    msdb.dbo.sysssispackages       p
 JOIN    msdb.dbo.sysssispackagefolders f ON p.folderid = f.folderid
 ORDER BY f.foldername, p.name;
 ```
+
+(Read as raw bytes and written verbatim — casting to `XML` would drop the
+package's `<?xml ?>` declaration / BOM.)
 
 - Write to `<out>/<sanitised-folder>/<sanitised-name>.dtsx`.
 - Fallback for pre-2012 instances: probe for `sysdtspackages90` /
