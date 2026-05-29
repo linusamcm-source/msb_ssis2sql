@@ -13,7 +13,7 @@ from ._naming import resolve_collisions, resolve_procedure_name, sanitise
 from .control_graph import ControlFlowGraph
 from .errors import GraphError
 from .generator import ConvertOptions, convert_package
-from .model import Package
+from .model import ExecutePackageTask, Package
 from .observability import logged, logger
 from .parser import parse_file
 from .project import load_project
@@ -23,6 +23,19 @@ from .util import _posix, decode_package_name
 def _decoded_stem(path: Path) -> str:
     """Disk-file stem with %xx percent-escapes decoded — matches EPT refs."""
     return decode_package_name(path.stem)
+
+
+def _ept_reference(ept: ExecutePackageTask) -> tuple[str, str]:
+    """Return ``(raw_reference, basename)`` for an ExecutePackageTask.
+
+    Prefers ``PackageName``; falls back to ``PackagePath`` so a child referenced
+    by a *path* — which may contain spaces and ``\\`` or ``/`` separators, and may
+    omit the ``.dtsx`` extension — still resolves. The basename is the final path
+    segment, used to match against the directory's files.
+    """
+    raw = (ept.package_name or ept.package_path or "").strip()
+    basename = re.split(r"[\\/]", raw)[-1].strip()
+    return raw, basename
 
 
 def _normalize_component(name: str) -> str:
@@ -491,32 +504,34 @@ def _build_ordered_exec_lines(
         warnings.append((main_src, cycle_warning))
         ordered_epts = epts  # declaration order fallback
 
-    # Dangling / outside-dir scan. Compare against decoded disk names so
-    # '%20'-encoded files match decoded EPT refs.
+    # Dangling / outside-dir scan. Match the reference *basename* against decoded
+    # disk names so '%20'-encoded, space-bearing, or path-style EPT refs resolve;
+    # the comparison is extension-insensitive because PackagePath may omit '.dtsx'.
     dir_file_names = {decode_package_name(f.name).lower() for f in dir_files}
+    dir_stems = {_decoded_stem(f).lower() for f in dir_files}
     for ept in ordered_epts:
-        pkg_name = ept.package_name
-        if not pkg_name:
+        raw, basename = _ept_reference(ept)
+        if not basename:
             continue
-        if ".." in pkg_name or pkg_name.startswith("/"):
+        if ".." in raw or raw.startswith("/"):
             warnings.append(
-                (main_src, f"outside-dir child reference rejected: {pkg_name!r}")
+                (main_src, f"outside-dir child reference rejected: {raw!r}")
             )
             continue
-        if pkg_name.lower() not in dir_file_names:
+        if basename.lower() not in dir_file_names and Path(basename).stem.lower() not in dir_stems:
             warnings.append(
-                (main_src, f"missing child: {pkg_name!r} referenced by EPT but not found in directory")
+                (main_src, f"missing child: {raw!r} referenced by EPT but not found in directory")
             )
 
     # EXEC line formatting (raw, unindented).
     exec_lines: list[str] = []
     for ept in ordered_epts:
-        pkg_name = ept.package_name
-        if not pkg_name:
+        raw, basename = _ept_reference(ept)
+        if not basename:
             continue
-        if ".." in pkg_name or pkg_name.startswith("/"):
+        if ".." in raw or raw.startswith("/"):
             continue
-        stem = Path(pkg_name).stem
+        stem = Path(basename).stem
         if stem in proc_name_by_stem:
             exec_lines.append(f"EXEC {proc_name_by_stem[stem]};")
 

@@ -73,4 +73,4 @@ def test_main_reports_missing_textual_serve(
     assert excinfo.value.code == 2
     err = capsys.readouterr().err
     assert "textual-serve" in err
-    assert "just install" in err
+    assert "uv sync" in err
