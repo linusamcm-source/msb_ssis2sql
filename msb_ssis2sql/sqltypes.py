@@ -87,6 +87,62 @@ def tsql_type_from_column(col: Column) -> str:
     return _BASE.get(c, _DEFAULT)
 
 
+# .NET TypeCode -> T-SQL, for project/package parameter ``DataType`` codes.
+_PARAM_TYPECODE: dict[str, str] = {
+    "3": "BIT",                # Boolean
+    "4": "NCHAR(1)",           # Char
+    "5": "SMALLINT",           # SByte
+    "6": "TINYINT",            # Byte
+    "7": "SMALLINT",           # Int16
+    "8": "INT",                # UInt16
+    "9": "INT",                # Int32
+    "10": "BIGINT",            # UInt32
+    "11": "BIGINT",            # Int64
+    "12": "DECIMAL(20,0)",     # UInt64
+    "13": "REAL",              # Single
+    "14": "FLOAT",             # Double
+    "15": "DECIMAL(38,6)",     # Decimal
+    "16": "DATETIME2(7)",      # DateTime
+    "18": "NVARCHAR(4000)",    # String
+}
+
+_PARAM_DEFAULT = "NVARCHAR(4000)"
+
+# Character/date families take a quoted literal; everything else is emitted bare.
+_QUOTED_TYPE_PREFIXES = ("NVARCHAR", "VARCHAR", "NCHAR", "CHAR", "DATE", "TIME", "UNIQUEIDENTIFIER")
+
+
+def param_type_to_tsql(code: str) -> str:
+    """Map a parameter ``DataType`` code to a T-SQL type.
+
+    Project parameters store a .NET ``TypeCode`` integer; package parameters use
+    the same numeric space in practice. Non-numeric codes fall back to the
+    pipeline-column / expression-cast mapping. Unknown codes default to
+    ``NVARCHAR(4000)``.
+    """
+    code = (code or "").strip()
+    if code in _PARAM_TYPECODE:
+        return _PARAM_TYPECODE[code]
+    if code.isdigit():
+        return _PARAM_DEFAULT
+    return tsql_type(code)
+
+
+def param_literal(type_sql: str, value: str, sensitive: bool) -> str:
+    """Render a parameter's default as a T-SQL literal for its declared type.
+
+    Sensitive parameters (value withheld under an ``Encrypt*`` protection level)
+    and empty non-character defaults render as ``NULL``; character/date types are
+    quoted; numeric/bit types are emitted bare.
+    """
+    if sensitive:
+        return "NULL"
+    upper = type_sql.upper()
+    if upper.startswith(_QUOTED_TYPE_PREFIXES):
+        return sql_string_literal(value)
+    return value.strip() if value.strip() else "NULL"
+
+
 def sql_string_literal(value: str) -> str:
     """Render a Python string as a T-SQL Unicode literal.
 

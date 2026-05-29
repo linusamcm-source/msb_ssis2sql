@@ -13,10 +13,10 @@ from dataclasses import dataclass, field
 from .dialect import TSqlDialect
 from .errors import GraphError
 from .graph import DataFlowGraph
-from .model import DataFlow, Package
+from .model import DataFlow, Package, Parameter, Project
 from .observability import logged, logger
 from .parser import parse_file
-from .sqltypes import sql_string_literal
+from .sqltypes import param_literal, param_type_to_tsql, sql_string_literal
 from .transforms import BuildContext, get_transpiler, sanitise_identifier
 
 
@@ -28,6 +28,10 @@ class ConvertOptions:
     procedure_name: str = "usp_Migrated_Package"
     include_header: bool = True
     orchestration_body: list[str] | None = None
+    # Opt-in: qualify source/destination tables with the database from the
+    # resolved connection manager's connection string (off by default - it
+    # changes emitted table names).
+    qualify_from_connection: bool = False
 
 
 @dataclass
@@ -46,15 +50,55 @@ class ConversionResult:
 # public entry points
 # --------------------------------------------------------------------------- #
 @logged
-def convert_file(path: str | pathlib.Path, options: ConvertOptions | None = None) -> ConversionResult:
+def convert_file(
+    path: str | pathlib.Path,
+    options: ConvertOptions | None = None,
+    *,
+    project: Project | None = None,
+) -> ConversionResult:
     """Parse a .dtsx file and convert it in one call."""
-    return convert_package(parse_file(path), options)
+    return convert_package(parse_file(path), options, project=project)
 
 
 @logged
-def convert_package(package: Package, options: ConvertOptions | None = None) -> ConversionResult:
-    """Convert an already-parsed :class:`~msb_ssis2sql.model.Package`."""
+def convert_project(
+    project_dir: str | pathlib.Path,
+    options: ConvertOptions | None = None,
+) -> dict[str, ConversionResult]:
+    """Convert every ``.dtsx`` in an expanded SSIS project directory.
+
+    Loads the project context once (``@Project.manifest`` / ``Project.params`` /
+    ``*.conmgr``) and converts each package with that shared context, so project
+    parameters and shared connection managers resolve. Returns a mapping of
+    package file stem -> :class:`ConversionResult`. When the directory is not an
+    expanded project (no manifest) the packages still convert, just without
+    project context.
+    """
+    from .project import load_project
+
+    project_dir = pathlib.Path(project_dir)
+    project = load_project(project_dir)
+    results: dict[str, ConversionResult] = {}
+    for dtsx in sorted(project_dir.glob("*.dtsx")):
+        results[dtsx.stem] = convert_file(dtsx, options, project=project)
+    return results
+
+
+@logged
+def convert_package(
+    package: Package,
+    options: ConvertOptions | None = None,
+    *,
+    project: Project | None = None,
+) -> ConversionResult:
+    """Convert an already-parsed :class:`~msb_ssis2sql.model.Package`.
+
+    ``project`` supplies the expanded-project context (project parameters and
+    shared connection managers); when ``None`` it falls back to
+    ``package.project``, and when that is also ``None`` behaviour is unchanged.
+    """
     options = options or ConvertOptions()
+    project = project or package.project
     dialect = TSqlDialect()
     logger.info(
         "converting package {!r}: {} data flow(s)", package.name, len(package.data_flows)
@@ -64,6 +108,15 @@ def convert_package(package: Package, options: ConvertOptions | None = None) -> 
     warnings: list[str] = []
     referenced_vars: set[tuple[str, str]] = set()
 
+    if project is not None and project.is_password_encrypted:
+        enc = (
+            f"project {project.name!r} protection level "
+            f"{project.protection_level!r}: parameter values and sensitive "
+            f"connection-string parts are encrypted and were not exported"
+        )
+        warnings.append(enc)
+        logger.warning(enc)
+
     # D-5: suppress the no-DFT warning iff orchestration_body is non-empty
     # (the orch-only collapse explicitly replaces the empty body with EXECs).
     if not package.data_flows and not options.orchestration_body:
@@ -72,12 +125,13 @@ def convert_package(package: Package, options: ConvertOptions | None = None) -> 
         logger.warning(no_flows)
 
     for data_flow in package.data_flows:
-        section, ctx = _convert_data_flow(data_flow, package, dialect, options)
+        section, ctx = _convert_data_flow(data_flow, package, dialect, options, project)
         sections.append(section)
         warnings.extend(ctx.warnings)
         referenced_vars |= set(ctx.referenced_variables)
 
-    sql = _assemble(package, sections, referenced_vars, options)
+    warnings.extend(_parameter_warnings(package, project, referenced_vars))
+    sql = _assemble(package, sections, referenced_vars, options, project)
     logger.info(
         "conversion complete: {} data flow(s), {} warning(s)",
         len(package.data_flows), len(warnings),
@@ -94,6 +148,7 @@ def _convert_data_flow(
     package: Package,
     dialect: TSqlDialect,
     options: ConvertOptions,
+    project: Project | None = None,
 ) -> tuple[str, BuildContext]:
     """Transpile one data flow; return its rendered section and the build context.
 
@@ -101,7 +156,7 @@ def _convert_data_flow(
     returned context rather than having them unpacked into a positional tuple.
     """
     graph = DataFlowGraph(data_flow)
-    ctx = BuildContext(graph, package, dialect, options)
+    ctx = BuildContext(graph, package, dialect, options, project)
     logger.info(
         "data flow {!r}: {} component(s), {} path(s)",
         data_flow.name, len(data_flow.components), len(data_flow.paths),
@@ -218,13 +273,14 @@ def _assemble(
     sections: list[str],
     referenced_vars: set[tuple[str, str]],
     options: ConvertOptions,
+    project: Project | None = None,
 ) -> str:
     blocks: list[str] = []
     if options.include_header:
         blocks.append(_header(package, options))
 
     inner_parts: list[str] = []
-    declarations = _declarations(package, referenced_vars)
+    declarations = _declarations(package, referenced_vars, project)
     if declarations:
         inner_parts.append(declarations)
     exec_sql = _exec_sql_section(package)
@@ -256,10 +312,56 @@ def _orchestration_section(package: Package, options: ConvertOptions) -> str:
     return "\n".join(body)
 
 
-def _declarations(package: Package, referenced_vars: set[tuple[str, str]]) -> str:
+def _parameter_index(
+    package: Package, project: Project | None
+) -> dict[tuple[str, str], Parameter]:
+    """Merge package + project parameters, keyed by ``(namespace, name)``.
+
+    Package parameters take precedence over project parameters of the same name.
+    """
+    index: dict[tuple[str, str], Parameter] = {}
+    if project is not None:
+        for p in project.parameters:
+            index[(p.namespace, p.name)] = p
+    for p in package.parameters:  # package overrides project
+        index[(p.namespace, p.name)] = p
+    return index
+
+
+def _parameter_warnings(
+    package: Package,
+    project: Project | None,
+    referenced_vars: set[tuple[str, str]],
+) -> list[str]:
+    """Warn about sensitive (withheld) and unresolved parameter references."""
+    index = _parameter_index(package, project)
+    out: list[str] = []
+    for namespace, name in sorted(referenced_vars):
+        if not namespace.startswith("$"):
+            continue
+        param = index.get((namespace[1:], name))
+        if param is None:
+            out.append(
+                f"parameter {namespace}::{name} is referenced but not defined in the "
+                f"package or project - emitted as NULL; supply its value manually"
+            )
+        elif param.sensitive:
+            out.append(
+                f"parameter {param.qualified} is sensitive - its value is not exported "
+                f"under the project protection level; emitted as NULL"
+            )
+    return out
+
+
+def _declarations(
+    package: Package,
+    referenced_vars: set[tuple[str, str]],
+    project: Project | None = None,
+) -> str:
     if not referenced_vars:
         return ""
     by_key = {(v.namespace, v.name): v for v in package.variables}
+    params = _parameter_index(package, project)
     lines = [
         "-- " + "-" * 66,
         "-- Package variables referenced by SSIS expressions.",
@@ -268,6 +370,21 @@ def _declarations(package: Package, referenced_vars: set[tuple[str, str]]) -> st
     ]
     for namespace, name in sorted(referenced_vars):
         ident = sanitise_identifier(name)
+        if namespace.startswith("$"):
+            param = params.get((namespace[1:], name))
+            if param is not None:
+                type_sql = param_type_to_tsql(param.data_type)
+                literal = param_literal(type_sql, param.value, param.sensitive)
+                note = f"SSIS parameter {param.qualified}"
+                if param.sensitive:
+                    note += " (sensitive - value withheld)"
+                lines.append(f"DECLARE @{ident} {type_sql} = {literal};  -- {note}")
+            else:
+                lines.append(
+                    f"DECLARE @{ident} NVARCHAR(4000) = NULL;"
+                    f"  -- SSIS parameter {namespace}::{name} (unresolved)"
+                )
+            continue
         var = by_key.get((namespace, name))
         value = (var.value if var else "") or ""
         literal = sql_string_literal(value)

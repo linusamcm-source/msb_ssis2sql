@@ -1,6 +1,10 @@
 """Extract SQL Server Agent jobs from msdb into AgentJob dataclasses and YAML files.
 
-Connection settings are read from MSDB_DSN, MSDB_USER, MSDB_PASSWORD env vars.
+Connection settings are read from the MSDB_DSN env var (or --dsn CLI flag).
+Authentication is Windows-only (Trusted_Connection=yes); USER/PASSWORD env vars
+are no longer consulted. The DSN is augmented with Encrypt=yes and
+TrustServerCertificate=yes so dev SQL Server instances with self-signed certs
+work without extra configuration.
 They must never appear in any logged or printed output.
 
 Permission probe: rejects sysadmin (exit 2 / sa-detected); rejects missing
@@ -9,7 +13,6 @@ SQLAgentReaderRole or db_datareader (exit 2 / permission).
 from __future__ import annotations
 
 import dataclasses
-import os
 from pathlib import Path
 from typing import Any
 
@@ -188,15 +191,25 @@ def write_agent_warnings_log(
 
 
 def _connect(dsn: str) -> Any:
-    """Open a pyodbc connection. Never logs DSN or credentials."""
-    user = os.environ.get("MSDB_USER", "")
-    password = os.environ.get("MSDB_PASSWORD", "")
-    kwargs: dict[str, Any] = {"timeout": 5}
-    if user:
-        kwargs["user"] = user
-    if password:
-        kwargs["password"] = password
-    return pyodbc.connect(dsn, **kwargs)
+    """Open a pyodbc connection using Windows Authentication over an
+    encrypted, server-cert-trusting channel. Never logs DSN.
+
+    The caller-supplied DSN is augmented with ``Trusted_Connection=yes``,
+    ``Encrypt=yes``, and ``TrustServerCertificate=yes``. Existing clauses
+    in the DSN are preserved verbatim — duplicates are harmless for
+    pyodbc but the dedupe avoids confusing logs.
+    """
+    extras = []
+    dsn_lower = dsn.lower()
+    if "trusted_connection=" not in dsn_lower:
+        extras.append("Trusted_Connection=yes")
+    if "encrypt=" not in dsn_lower:
+        extras.append("Encrypt=yes")
+    if "trustservercertificate=" not in dsn_lower:
+        extras.append("TrustServerCertificate=yes")
+    sep = "" if dsn.endswith(";") or not dsn else ";"
+    full_dsn = dsn + sep + ";".join(extras) + (";" if extras else "")
+    return pyodbc.connect(full_dsn, timeout=5)
 
 
 def _check_permissions(cursor: Any) -> str | None:

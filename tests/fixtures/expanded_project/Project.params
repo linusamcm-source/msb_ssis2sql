@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SSIS:Parameters xmlns:SSIS="www.microsoft.com/SqlServer/SSIS">
+  <SSIS:Parameter SSIS:Name="StagingServer">
+    <SSIS:Properties>
+      <SSIS:Property SSIS:Name="ID">{11111111-1111-1111-1111-111111111111}</SSIS:Property>
+      <SSIS:Property SSIS:Name="DataType">18</SSIS:Property>
+      <SSIS:Property SSIS:Name="Value">sql-stg-01</SSIS:Property>
+      <SSIS:Property SSIS:Name="Sensitive">0</SSIS:Property>
+      <SSIS:Property SSIS:Name="Required">0</SSIS:Property>
+    </SSIS:Properties>
+  </SSIS:Parameter>
+  <SSIS:Parameter SSIS:Name="BatchSize">
+    <SSIS:Properties>
+      <SSIS:Property SSIS:Name="DataType">9</SSIS:Property>
+      <SSIS:Property SSIS:Name="Value">5000</SSIS:Property>
+      <SSIS:Property SSIS:Name="Sensitive">0</SSIS:Property>
+    </SSIS:Properties>
+  </SSIS:Parameter>
+  <SSIS:Parameter SSIS:Name="ApiKey">
+    <SSIS:Properties>
+      <SSIS:Property SSIS:Name="DataType">18</SSIS:Property>
+      <SSIS:Property SSIS:Name="Value"></SSIS:Property>
+      <SSIS:Property SSIS:Name="Sensitive">1</SSIS:Property>
+    </SSIS:Properties>
+  </SSIS:Parameter>
+</SSIS:Parameters>

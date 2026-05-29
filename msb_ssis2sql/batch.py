@@ -14,12 +14,34 @@ from .generator import ConvertOptions, convert_file, convert_package
 from .model import Package
 from .observability import logged, logger
 from .parser import parse_file
+from .project import load_project
 from .util import _posix, decode_package_name
 
 
 def _decoded_stem(path: Path) -> str:
     """Disk-file stem with %xx percent-escapes decoded — matches EPT refs."""
     return decode_package_name(path.stem)
+
+
+def _clean_sql_stems(dir_files: list[Path]) -> dict[str, str]:
+    """Map each decoded stem -> a unique, whitespace-free output ``.sql`` stem.
+
+    Whitespace runs in a ``.dtsx`` name (literal spaces or decoded ``%20``)
+    collapse to single underscores so the emitted ``.sql`` files have clean
+    names. Case is preserved (unlike proc-name sanitising). Collisions are
+    de-duplicated case-insensitively with ``_2`` / ``_3`` suffixes in
+    decoded-stem sort order, matching the proc-name collision algorithm.
+    """
+    result: dict[str, str] = {}
+    seen: dict[str, int] = {}
+    for src in sorted(dir_files, key=_decoded_stem):
+        decoded = _decoded_stem(src)
+        base = re.sub(r"\s+", "_", decoded) or "package"
+        key = base.lower()
+        count = seen.get(key, 0)
+        seen[key] = count + 1
+        result[decoded] = base if count == 0 else f"{base}_{count + 1}"
+    return result
 
 # Visual Studio build / intermediate dirs — not source packages.
 _SKIP_DIRS = frozenset({"bin", "obj"})
@@ -94,6 +116,24 @@ def convert_tree(
         rel_dir = dir_path.relative_to(input_root)
         rel_dir_str = str(rel_dir)
 
+        # An expanded SSIS project (a directory with @Project.manifest) supplies
+        # project parameters + shared connection managers to every package in it.
+        project = load_project(dir_path)
+        if project is not None:
+            logger.info(
+                "directory {} is an expanded project {!r}: protection={!r}, "
+                "{} param(s), {} project connection(s)",
+                rel_dir_str, project.name, project.protection_level,
+                len(project.parameters), len(project.connection_managers),
+            )
+            if project.is_password_encrypted:
+                batch_warnings.append((
+                    str(dir_path),
+                    f"project {project.name!r} protection level "
+                    f"{project.protection_level!r}: parameter values and sensitive "
+                    f"connection-string parts are encrypted and not exported",
+                ))
+
         # Resolve proc-name collisions per directory. Decode stems first so
         # '%20'-encoded disk names share a collision namespace with EPT refs.
         stems = [_decoded_stem(f) for f in dir_files]
@@ -122,6 +162,13 @@ def convert_tree(
             _decoded_stem(f): _resolve_proc_name(f) for f in dir_files
         }
 
+        # Whitespace-free, collision-safe output .sql filenames (per directory).
+        sql_name_by_stem = _clean_sql_stems(dir_files)
+
+        def _sql_dest(src: Path) -> Path:
+            rel_parent = src.relative_to(input_root).parent
+            return output_root / rel_parent / f"{sql_name_by_stem[_decoded_stem(src)]}.sql"
+
         # T-4: eagerly parse main.dtsx so the per-file loop and the collapse
         # decision share one parse. On parse failure, record the outcome now
         # (preserving main-first outcome ordering), skip main in the loop, but
@@ -133,7 +180,7 @@ def convert_tree(
                 cached_main_pkg = parse_file(main_file)
             except Exception as exc:  # noqa: BLE001
                 main_parse_error = f"main.dtsx parse failed: {exc!r}"
-                main_dst = output_root / main_file.relative_to(input_root).with_suffix(".sql")
+                main_dst = _sql_dest(main_file)
                 result.outcomes.append(
                     FileOutcome(main_file, main_dst, ok=False, error=main_parse_error)
                 )
@@ -184,7 +231,7 @@ def convert_tree(
 
         for src in ordered:
             rel = src.relative_to(input_root)
-            dst = output_root / rel.with_suffix(".sql")
+            dst = _sql_dest(src)
             resolved = dst.resolve()
             if not resolved.is_relative_to(output_root):
                 error_msg = f"output path escapes output root: {resolved}"
@@ -206,9 +253,9 @@ def convert_tree(
                 if is_main:
                     # T-4b: reuse the eager parse instead of re-parsing.
                     assert cached_main_pkg is not None
-                    conversion = convert_package(cached_main_pkg, wrap_opts)
+                    conversion = convert_package(cached_main_pkg, wrap_opts, project=project)
                 else:
-                    conversion = convert_file(src, wrap_opts)
+                    conversion = convert_file(src, wrap_opts, project=project)
                 dst.write_text(conversion.sql, encoding="utf-8")
                 outcome = FileOutcome(
                     src, dst, ok=True,

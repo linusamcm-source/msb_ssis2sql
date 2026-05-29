@@ -79,19 +79,17 @@ from validation.config import ValidationConfig, get_connection_string, load_conf
 _MSSQL_VARS: dict[str, str] = {
     "MSSQL_SERVER_ADDRESS": "db.example.com",
     "MSSQL_SERVER_PORT": "1433",
-    "MSSQL_SA_USERNAME": "sa",
-    "MSSQL_SA_PASSWORD": "S3cr3t!",
 }
 
 
 def _set_mssql_vars(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Inject all four MSSQL_* env vars."""
+    """Inject the MSSQL_* env vars."""
     for key, value in _MSSQL_VARS.items():
         monkeypatch.setenv(key, value)
 
 
 def _unset_mssql_vars(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Remove all four MSSQL_* env vars."""
+    """Remove the MSSQL_* env vars."""
     for key in _MSSQL_VARS:
         monkeypatch.delenv(key, raising=False)
 
@@ -101,8 +99,6 @@ def _fake_config() -> ValidationConfig:
     return ValidationConfig(
         server_address="db.example.com",
         server_port="1433",
-        sa_username="sa",
-        sa_password="S3cr3t!",
     )
 
 
@@ -189,20 +185,25 @@ def test_connection_string_parts_server(monkeypatch: pytest.MonkeyPatch) -> None
     assert "SERVER=db.example.com,1433" in connstr
 
 
-def test_connection_string_parts_uid(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The ``UID=`` clause appears in the connection string."""
+def test_connection_string_parts_trusted_connection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ``Trusted_Connection=yes`` clause appears in the connection string."""
     _set_mssql_vars(monkeypatch)
     config = load_config()
     connstr = get_connection_string(config)
-    assert "UID=sa" in connstr
+    assert "Trusted_Connection=yes" in connstr
 
 
-def test_connection_string_parts_pwd(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The ``PWD=`` clause appears in the connection string."""
+def test_connection_string_omits_uid_and_pwd(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows-auth connection string carries no UID/PWD clauses."""
     _set_mssql_vars(monkeypatch)
     config = load_config()
     connstr = get_connection_string(config)
-    assert "PWD=S3cr3t!" in connstr
+    assert "UID=" not in connstr
+    assert "PWD=" not in connstr
 
 
 def test_connection_string_parts_encrypt(monkeypatch: pytest.MonkeyPatch) -> None:

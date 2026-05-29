@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<SSIS:Project xmlns:SSIS="www.microsoft.com/SqlServer/SSIS"
+              SSIS:ProtectionLevel="EncryptSensitiveWithUserKey">
+  <SSIS:Properties>
+    <SSIS:Property SSIS:Name="Name">SalesProject</SSIS:Property>
+    <SSIS:Property SSIS:Name="VersionMajor">1</SSIS:Property>
+    <SSIS:Property SSIS:Name="VersionMinor">0</SSIS:Property>
+  </SSIS:Properties>
+  <SSIS:DeploymentInfo>
+    <SSIS:ProjectConnectionParameters />
+    <SSIS:PackageInfo>
+      <SSIS:Properties>
+        <SSIS:Property SSIS:Name="Name">LoadSales.dtsx</SSIS:Property>
+      </SSIS:Properties>
+    </SSIS:PackageInfo>
+    <SSIS:PackageInfo>
+      <SSIS:Properties>
+        <SSIS:Property SSIS:Name="Name">LoadDims.dtsx</SSIS:Property>
+      </SSIS:Properties>
+    </SSIS:PackageInfo>
+  </SSIS:DeploymentInfo>
+</SSIS:Project>

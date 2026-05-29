@@ -58,7 +58,7 @@ class SourceTranspiler(Transpiler):
 
         table = table_name(component)
         if table:
-            return f"SELECT\n{projection}\nFROM {ctx.dialect.quote_qualified(table)}"
+            return f"SELECT\n{projection}\nFROM {ctx.qualified_table(component, table)}"
 
         sql_var = component.property("SqlCommandVariable")
         if sql_var:
@@ -76,13 +76,10 @@ class SourceTranspiler(Transpiler):
 
     @staticmethod
     def _connection_name(ctx: BuildContext, component: Component) -> str:
+        cm = ctx.resolve_connection_manager(component)
+        if cm is not None and cm.name:
+            return cm.name
         for conn in component.connections:
-            for cm in ctx.package.connection_managers:
-                if cm.ref_id and cm.ref_id in (
-                    conn.connection_manager_ref_id,
-                    conn.connection_manager_id,
-                ):
-                    return cm.name
             if conn.name:
                 return conn.name
         return ""

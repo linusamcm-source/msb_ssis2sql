@@ -71,7 +71,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     agent.add_argument(
         "--dsn", metavar="DSN", default=None,
-        help="ODBC DSN string (overrides MSDB_DSN env var).",
+        help="ODBC DSN string (overrides MSDB_DSN env var). Authentication "
+             "is Windows-only — Trusted_Connection=yes is appended; "
+             "USER/PASSWORD env vars are ignored.",
     )
     agent.add_argument(
         "--filter", metavar="PATTERN", default=None,
@@ -123,6 +125,11 @@ def build_parser() -> argparse.ArgumentParser:
     packages.add_argument(
         "--clean", action="store_true",
         help="Delete the output directory before extracting (idempotent re-runs).",
+    )
+    packages.add_argument(
+        "--expanded", action="store_true",
+        help="SSISDB only: also write each project's @Project.manifest, "
+             "Project.params and *.conmgr so convert-tree reads it losslessly.",
     )
 
     return parser
@@ -254,6 +261,7 @@ def _cmd_extract_packages(args) -> int:
         driver=args.driver,
         trust_cert=args.trust_cert,
         clean=args.clean,
+        expanded=args.expanded,
     )
     for p in written:
         print(f"wrote {p}")

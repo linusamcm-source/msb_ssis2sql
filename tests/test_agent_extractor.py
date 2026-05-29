@@ -173,8 +173,6 @@ def test_cli_exits_two_when_sa_member(monkeypatch, tmp_path, capsys):
     )
     _install_fake_pyodbc(monkeypatch, cursor)
     monkeypatch.setenv("MSDB_DSN", "Driver={ODBC};Server=fake;")
-    monkeypatch.setenv("MSDB_USER", "loginname")
-    monkeypatch.setenv("MSDB_PASSWORD", "redacted-secret-9847")
 
     from msb_ssis2sql.cli import main
 
@@ -191,8 +189,6 @@ def test_cli_exits_two_when_missing_db_datareader(monkeypatch, tmp_path, capsys)
     )
     _install_fake_pyodbc(monkeypatch, cursor)
     monkeypatch.setenv("MSDB_DSN", "Driver={ODBC};Server=fake;")
-    monkeypatch.setenv("MSDB_USER", "loginname")
-    monkeypatch.setenv("MSDB_PASSWORD", "redacted-secret-9847")
 
     from msb_ssis2sql.cli import main
 
@@ -209,8 +205,6 @@ def test_cli_exits_two_when_missing_sqlagentreader(monkeypatch, tmp_path, capsys
     )
     _install_fake_pyodbc(monkeypatch, cursor)
     monkeypatch.setenv("MSDB_DSN", "Driver={ODBC};Server=fake;")
-    monkeypatch.setenv("MSDB_USER", "loginname")
-    monkeypatch.setenv("MSDB_PASSWORD", "redacted-secret-9847")
 
     from msb_ssis2sql.cli import main
 
@@ -224,25 +218,24 @@ def test_cli_exits_two_when_missing_sqlagentreader(monkeypatch, tmp_path, capsys
 # password/DSN must never appear in logged output
 # --------------------------------------------------------------------------- #
 
-def test_password_and_dsn_never_appear_in_stderr(monkeypatch, tmp_path, capsys):
-    """Decision: connection settings never appear in logs/error output."""
-    secret_password = "supersecret-pw-1234"
+def test_dsn_never_appears_in_stderr(monkeypatch, tmp_path, capsys):
+    """Decision: connection settings never appear in logs/error output.
+
+    Windows-auth means there is no password to leak. The DSN itself may
+    embed sensitive hostnames / catalogues — assert those don't surface
+    either.
+    """
     secret_dsn = "Driver={ODBC};Server=db-prod-internal;Database=msdb;"
     jobs, steps, schedules, jobsched = _golden_rows()
     cursor = _FakeCursor(_golden_role_probe_ok(), jobs, steps, schedules, jobsched)
     _install_fake_pyodbc(monkeypatch, cursor)
     monkeypatch.setenv("MSDB_DSN", secret_dsn)
-    monkeypatch.setenv("MSDB_USER", "loginname-redacted")
-    monkeypatch.setenv("MSDB_PASSWORD", secret_password)
 
     from msb_ssis2sql.cli import main
 
     rc = main(["extract-agent-jobs", "--out", str(tmp_path)])
     captured = capsys.readouterr()
     combined = captured.out + captured.err
-    assert secret_password not in combined, (
-        f"password leaked to stderr/stdout: {combined!r}"
-    )
     assert "db-prod-internal" not in combined, (
         f"DSN host leaked to stderr/stdout: {combined!r}"
     )
@@ -263,8 +256,6 @@ def test_cli_exits_two_on_connection_failure(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr("pyodbc.connect", _boom)
     monkeypatch.setenv("MSDB_DSN", "Driver={ODBC};Server=fake;")
-    monkeypatch.setenv("MSDB_USER", "loginname")
-    monkeypatch.setenv("MSDB_PASSWORD", "irrelevant")
 
     from msb_ssis2sql.cli import main
 

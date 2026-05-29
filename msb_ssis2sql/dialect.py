@@ -19,10 +19,14 @@ class TSqlDialect:
 
     def quote_qualified(self, name: str) -> str:
         """Quote a possibly multi-part name such as ``Sales.dbo.Customers``."""
-        parts = self._split_qualified(name)
+        parts = self.split_qualified(name)
         if not parts:
             return self.quote(name)
         return ".".join(self.quote(p) for p in parts)
+
+    def split_qualified(self, name: str) -> list[str]:
+        """Public wrapper over :meth:`_split_qualified` for transpiler use."""
+        return self._split_qualified(name)
 
     @staticmethod
     def _split_qualified(name: str) -> list[str]:

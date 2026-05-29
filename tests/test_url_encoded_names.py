@@ -84,10 +84,14 @@ def test_convert_tree_matches_encoded_disk_files_against_decoded_ept_refs(tmp_pa
 
 
 def test_convert_tree_emits_child_sql_files_using_decoded_proc_names(tmp_path):
-    """Per-file .sql outputs are keyed off the decoded disk-stem."""
+    """Per-file .sql outputs collapse whitespace to underscores.
+
+    'Child%20A.dtsx' (decoded 'Child A') -> 'Child_A.sql'; the proc name inside
+    is the decoded sanitised form.
+    """
     out = tmp_path / "out"
     convert_tree(FIXTURE, out)
-    # The output filename mirrors the disk path (encoded), but the proc
-    # name inside is the decoded sanitised form.
-    child_a_sql = (out / "Child%20A.sql").read_text(encoding="utf-8")
+    assert not list(out.glob("*%20*")), "no %20 should survive in output names"
+    assert not list(out.glob("* *")), "no spaces should survive in output names"
+    child_a_sql = (out / "Child_A.sql").read_text(encoding="utf-8")
     assert "CREATE OR ALTER PROCEDURE usp_child_a" in child_a_sql, child_a_sql

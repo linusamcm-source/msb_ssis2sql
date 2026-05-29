@@ -32,11 +32,17 @@ from .model import (
     Executable,
     ExecutePackageTask,
     Package,
+    Parameter,
     Path,
     Port,
     PrecedenceConstraint,
     Variable,
 )
+
+
+def truthy(value: str | None) -> bool:
+    """Interpret an SSIS boolean attribute (``True``/``1``/``-1``) as a bool."""
+    return (value or "").strip().lower() in ("true", "1", "-1")
 
 
 # --------------------------------------------------------------------------- #
@@ -154,6 +160,7 @@ def parse_root(root: ET.Element) -> Package:
     package = Package(name=_prop(root, "ObjectName", "Package") or "Package")
     _parse_connection_managers(root, package)
     _parse_variables(root, package)
+    _parse_package_parameters(root, package)
     _collect_executables(root, package)
     _collect_precedence_constraints(root, package)
     logger.info(
@@ -228,6 +235,31 @@ def _parse_variable(elem: ET.Element) -> Variable:
             value = legacy_value.strip()
 
     return Variable(namespace=namespace, name=name, value=value, data_type=data_type)
+
+
+def _parse_package_parameters(root: ET.Element, package: Package) -> None:
+    """Parse ``<DTS:PackageParameters>`` (``$Package::Name``) into the IR.
+
+    Each ``<DTS:PackageParameter>`` carries its name/type/flags as attributes and
+    its default in a ``<DTS:Property DTS:Name="ParameterValue">`` child.
+    """
+    wrapper = _child(root, "PackageParameters")
+    if wrapper is None:
+        return
+    for elem in _children(wrapper, "PackageParameter"):
+        name = _prop(elem, "ObjectName", "") or ""
+        if not name:
+            continue
+        package.parameters.append(
+            Parameter(
+                namespace="Package",
+                name=name,
+                data_type=_attr(elem, "DataType", "") or "",
+                value=(_prop(elem, "ParameterValue", "") or "").strip(),
+                sensitive=truthy(_attr(elem, "Sensitive", "")),
+                required=truthy(_attr(elem, "Required", "")),
+            )
+        )
 
 
 # --------------------------------------------------------------------------- #

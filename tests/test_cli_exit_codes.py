@@ -145,8 +145,6 @@ def test_extract_agent_jobs_unknown_dir_path_handled(tmp_path, monkeypatch, caps
     # Set required env so we don't fall into config-missing branch (categorised),
     # but rig pyodbc to mimic an OK permission probe and zero jobs.
     monkeypatch.setenv("MSDB_DSN", "Driver={ODBC};Server=fake;")
-    monkeypatch.setenv("MSDB_USER", "loginname")
-    monkeypatch.setenv("MSDB_PASSWORD", "ignored")
 
     class _Cursor:
         def __init__(self):
