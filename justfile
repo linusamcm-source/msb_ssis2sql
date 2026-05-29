@@ -95,6 +95,11 @@ validate-static:
 extract-agent-jobs-smoke:
     uv run pytest validation/ -m agent_smoke
 
+# Run the package extractor against a live SQL Server (Windows auth). Skips
+# unless MSSQL_SERVER_ADDRESS is set and reachable. Manual; not part of `just test`.
+extract-packages-smoke:
+    uv run pytest validation/ -m package_smoke
+
 # Remove the virtual environment, lockfile-tracked caches, build artefacts.
 clean:
     rm -rf .venv .pytest_cache .ruff_cache .mypy_cache build dist *.egg-info
